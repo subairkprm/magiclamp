@@ -1,0 +1,182 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════
+#  MAGICLAMP — Complete Production Stack
+#  Start everything: docker compose up -d
+# ═══════════════════════════════════════════════════════════
+
+x-common-env: &common-env
+  SUPABASE_URL:        ${SUPABASE_URL}
+  SUPABASE_SERVICE_KEY:${SUPABASE_SERVICE_KEY}
+  OLLAMA_URL:          http://ollama:11434
+  OLLAMA_MODEL:        ${OLLAMA_MODEL:-qwen2.5:7b}
+  TELEGRAM_BOT_TOKEN:  ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
+  ENV:                 production
+
+services:
+
+  # ── 1. OLLAMA — Local LLM Engine ────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ml_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  # ── 2. BRAIN — Master Control ────────────────────────────
+  brain:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
+    container_name: ml_brain
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      <<: *common-env
+      JWT_SECRET:       ${JWT_SECRET}
+      BRAIN_SECRET:     ${BRAIN_SECRET}
+      BRAIN_DATA_DIR:   /data/brain
+      BRAIN_AUTO_MODE:  ${BRAIN_AUTO_MODE:-true}
+      N8N_URL:          http://n8n:5678
+      N8N_API_KEY:      ${N8N_API_KEY:-}
+    volumes:
+      - ./data/brain:/data/brain
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ── 3. AGENT — CRM AI Agent ─────────────────────────────
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: ml_agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      SUPABASE_KEY:  ${SUPABASE_SERVICE_KEY}
+      SECRET_KEY:    ${BRAIN_SECRET}
+    depends_on:
+      - brain
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── 4. N8N — Workflow Automation ─────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ml_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - GENERIC_TIMEZONE=Asia/Dubai
+      - N8N_LOG_LEVEL=warn
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=72
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── 5. UI — MagicLamp Frontend ───────────────────────────
+  ui:
+    image: nginx:alpine
+    container_name: ml_ui
+    restart: unless-stopped
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+      - ./nginx/ui.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - brain
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # ── 6. NGINX — Reverse Proxy + SSL ───────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ml_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./data/ssl:/etc/nginx/ssl:ro
+      - ./data/certbot:/var/www/certbot:ro
+    depends_on:
+      - brain
+      - agent
+      - ui
+      - n8n
+    networks: [magiclamp]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+networks:
+  magiclamp:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  brain_data:
+  n8n_data:

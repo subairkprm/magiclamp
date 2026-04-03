@@ -1,0 +1,216 @@
+"""MagicLamp API v1 — Admin Routes (full platform control)"""
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional
+from supabase import create_client
+from core.config import settings
+from core.auth import get_current_user, require_admin, CurrentUser, hash_password, generate_api_key
+from core.audit import log_action
+from core.circuit import ollama_circuit, supabase_circuit, telegram_circuit, n8n_circuit
+from core.registry import registry
+from core.bus import bus
+import httpx, secrets
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+# ── SYSTEM HEALTH ─────────────────────────────
+@router.get("/health")
+async def system_health(admin: CurrentUser = Depends(require_admin)):
+    health = await registry.health_check_all()
+    circuits = {
+        "ollama":   ollama_circuit.get_status(),
+        "supabase": supabase_circuit.get_status(),
+        "telegram": telegram_circuit.get_status(),
+        "n8n":      n8n_circuit.get_status(),
+    }
+    modules = registry.list_modules()
+    healthy_count = sum(1 for m in modules if m.get("health"))
+    return {
+        "status": "healthy" if healthy_count == len(modules) else "degraded",
+        "modules": modules,
+        "circuits": circuits,
+        "bus": bus.stats(),
+        "version": settings.APP_VERSION,
+    }
+
+# ── ORGANIZATIONS ─────────────────────────────
+@router.get("/orgs")
+async def list_orgs(admin: CurrentUser = Depends(require_admin)):
+    return supabase.table("organizations").select("*").execute().data
+
+@router.post("/orgs")
+async def create_org(body: dict, admin: CurrentUser = Depends(require_admin)):
+    result = supabase.table("organizations").insert({
+        "name": body["name"],
+        "slug": body["slug"],
+        "plan": body.get("plan", "free"),
+    }).execute()
+    log_action("org.created", "organization", result.data[0]["id"], new_data=body, user_id=admin.user_id)
+    return result.data[0]
+
+@router.patch("/orgs/{org_id}")
+async def update_org(org_id: str, body: dict, admin: CurrentUser = Depends(require_admin)):
+    result = supabase.table("organizations").update(body).eq("id", org_id).execute()
+    log_action("org.updated", "organization", org_id, new_data=body, user_id=admin.user_id)
+    return result.data[0] if result.data else {}
+
+# ── USERS ─────────────────────────────────────
+@router.get("/users")
+async def list_users(admin: CurrentUser = Depends(require_admin)):
+    return supabase.table("users").select("id,name,email,role,created_at").execute().data
+
+class CreateUserBody(BaseModel):
+    username: str
+    email:    str
+    password: str
+    role:     str = "user"
+    team_id:  Optional[int] = None
+
+@router.post("/users")
+async def create_user(body: CreateUserBody, admin: CurrentUser = Depends(require_admin)):
+    existing = supabase.table("users").select("id").eq("email", body.email).execute()
+    if existing.data:
+        raise HTTPException(400, "Email already exists")
+    result = supabase.table("users").insert({
+        "name":          body.username,
+        "email":         body.email,
+        "password_hash": hash_password(body.password),
+        "role":          body.role,
+    }).execute()
+    new_user = result.data[0]
+    if body.team_id:
+        supabase.table("team_members").insert({
+            "team_id": body.team_id,
+            "user_id": str(new_user["id"]),
+            "role":    "agent",
+        }).execute()
+    log_action("user.created", "user", str(new_user["id"]), new_data={"email": body.email, "role": body.role}, user_id=admin.user_id)
+    return {"id": new_user["id"], "username": body.username, "email": body.email, "role": body.role}
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: int, admin: CurrentUser = Depends(require_admin)):
+    if str(user_id) == admin.user_id:
+        raise HTTPException(400, "Cannot delete yourself")
+    supabase.table("users").delete().eq("id", user_id).execute()
+    log_action("user.deleted", "user", str(user_id), user_id=admin.user_id)
+    return {"ok": True}
+
+@router.patch("/users/{user_id}/password")
+async def reset_user_password(user_id: int, body: dict, admin: CurrentUser = Depends(require_admin)):
+    pw = body.get("password", "")
+    if len(pw) < 6:
+        raise HTTPException(400, "Password min 6 chars")
+    supabase.table("users").update({"password_hash": hash_password(pw)}).eq("id", user_id).execute()
+    log_action("user.password_reset", "user", str(user_id), user_id=admin.user_id)
+    return {"ok": True}
+
+# ── API KEYS ──────────────────────────────────
+@router.get("/api-keys")
+async def list_api_keys(admin: CurrentUser = Depends(require_admin)):
+    data = supabase.table("api_keys").select(
+        "id,name,key_prefix,scopes,is_active,last_used_at,created_at"
+    ).eq("org_id", admin.org_id).execute().data if admin.org_id else []
+    return data
+
+@router.post("/api-keys")
+async def create_api_key(body: dict, admin: CurrentUser = Depends(require_admin)):
+    if not admin.org_id:
+        raise HTTPException(400, "No org associated with this admin")
+    plain_key, _ = generate_api_key(
+        admin.org_id,
+        body.get("name", "API Key"),
+        body.get("scopes", [])
+    )
+    log_action("api_key.created", "api_key", None, new_data={"name": body.get("name")}, user_id=admin.user_id)
+    return {"key": plain_key, "note": "Store this key — it will not be shown again"}
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(key_id: str, admin: CurrentUser = Depends(require_admin)):
+    supabase.table("api_keys").update({"is_active": False}).eq("id", key_id).execute()
+    log_action("api_key.revoked", "api_key", key_id, user_id=admin.user_id)
+    return {"ok": True}
+
+# ── WEBHOOKS ──────────────────────────────────
+@router.get("/webhooks")
+async def list_webhooks(admin: CurrentUser = Depends(require_admin)):
+    return supabase.table("webhooks").select("id,name,url,events,is_active,last_called,failure_count").execute().data
+
+@router.post("/webhooks")
+async def create_webhook(body: dict, admin: CurrentUser = Depends(require_admin)):
+    result = supabase.table("webhooks").insert({
+        "org_id":  admin.org_id,
+        "name":    body.get("name", "Webhook"),
+        "url":     body["url"],
+        "events":  body.get("events", []),
+    }).execute()
+    log_action("webhook.created", "webhook", result.data[0]["id"], user_id=admin.user_id)
+    return result.data[0]
+
+@router.delete("/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: str, admin: CurrentUser = Depends(require_admin)):
+    supabase.table("webhooks").delete().eq("id", webhook_id).execute()
+    log_action("webhook.deleted", "webhook", webhook_id, user_id=admin.user_id)
+    return {"ok": True}
+
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: str, admin: CurrentUser = Depends(require_admin)):
+    wh = supabase.table("webhooks").select("*").eq("id", webhook_id).execute()
+    if not wh.data:
+        raise HTTPException(404, "Webhook not found")
+    hook = wh.data[0]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(hook["url"], json={"event": "test", "from": "MagicLamp"})
+        return {"status": r.status_code, "ok": r.status_code < 300}
+    except Exception as e:
+        return {"status": 0, "ok": False, "error": str(e)}
+
+# ── AUDIT LOG ─────────────────────────────────
+@router.get("/audit-log")
+async def get_audit_log(
+    limit: int = 50,
+    action: str = None,
+    admin: CurrentUser = Depends(require_admin)
+):
+    q = supabase.table("audit_log").select("*").order("created_at", desc=True).limit(limit)
+    if action:
+        q = q.like("action", f"%{action}%")
+    return q.execute().data
+
+# ── INTEGRATIONS ─────────────────────────────
+@router.get("/integrations")
+async def list_integrations(admin: CurrentUser = Depends(require_admin)):
+    return supabase.table("integrations").select("*").execute().data
+
+@router.put("/integrations/{type}")
+async def upsert_integration(type: str, body: dict, admin: CurrentUser = Depends(require_admin)):
+    existing = supabase.table("integrations").select("id").eq("type", type).execute()
+    if existing.data:
+        supabase.table("integrations").update({"config": body.get("config", {}), "status": "active"})\
+            .eq("type", type).execute()
+    else:
+        supabase.table("integrations").insert({
+            "org_id": admin.org_id,
+            "type":   type,
+            "name":   body.get("name", type),
+            "config": body.get("config", {}),
+            "status": "active",
+        }).execute()
+    log_action(f"integration.{type}.configured", "integration", type, user_id=admin.user_id)
+    return {"ok": True}
+
+# ── PLANS ─────────────────────────────────────
+@router.get("/plans")
+async def list_plans(admin: CurrentUser = Depends(require_admin)):
+    return supabase.table("subscription_plans").select("*").execute().data
+
+# ── MODULE CONTROL ────────────────────────────
+@router.get("/modules")
+async def list_modules(admin: CurrentUser = Depends(require_admin)):
+    return registry.list_modules()
+
+@router.post("/modules/health-check")
+async def run_health_check(admin: CurrentUser = Depends(require_admin)):
+    results = await registry.health_check_all()
+    return {k: {"healthy": v.healthy, "message": v.message} for k, v in results.items()}
