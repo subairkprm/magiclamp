@@ -1,0 +1,54 @@
+{
+  "_comment": "MagicLamp — Coolify Project Configuration",
+  "_instructions": [
+    "1. Open Coolify at http://YOUR_VPS_IP:8000",
+    "2. Create account on first visit",
+    "3. Go to: Sources → Add → GitHub",
+    "4. Connect: github.com/subairkprm/magiclamp",
+    "5. Create Project named: MagicLamp",
+    "6. Add Application → Docker Compose",
+    "7. Use this file as reference for environment variables",
+    "8. Enable: Auto Deploy on Push"
+  ],
+  "project": {
+    "name": "MagicLamp",
+    "description": "Enterprise AI Brain Platform — UAE Banking CRM",
+    "compose_file": "docker-compose.yml"
+  },
+  "environment_variables": {
+    "required": [
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_KEY",
+      "JWT_SECRET",
+      "BRAIN_SECRET",
+      "N8N_PASSWORD",
+      "N8N_ENCRYPTION_KEY"
+    ],
+    "optional": [
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_ADMIN_CHAT_ID",
+      "N8N_API_KEY",
+      "OLLAMA_MODEL",
+      "SERVER_HOST"
+    ]
+  },
+  "services": {
+    "ollama":  { "port": 11434, "note": "Internal only — blocked by firewall" },
+    "brain":   { "port": 9000,  "note": "Internal — exposed via /api/ on Nginx" },
+    "agent":   { "port": 8000,  "note": "Internal — exposed via /agent/ on Nginx" },
+    "n8n":     { "port": 5678,  "note": "Internal — exposed via /n8n/ on Nginx" },
+    "nginx":   { "port": 80,    "note": "Public entry point for all traffic" },
+    "coolify": { "port": 8000,  "note": "Host-level — access directly, not via Nginx" }
+  },
+  "auto_deploy": {
+    "enabled": true,
+    "branch": "main",
+    "services_to_rebuild": ["brain", "agent"],
+    "services_to_pull": ["ollama", "n8n", "ui", "nginx"]
+  },
+  "health_checks": {
+    "brain":  "http://localhost:9000/health",
+    "agent":  "http://localhost:8000/health",
+    "ollama": "http://localhost:11434/api/tags"
+  }
+}

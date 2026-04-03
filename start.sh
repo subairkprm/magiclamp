@@ -1,153 +1,207 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════
-#  MAGICLAMP — One-Command Production Deploy
-#  Run on a fresh Ubuntu 22.04 VPS as root
+# =============================================================
+#  MAGICLAMP — Complete VPS Setup + Coolify Integration
+#  One command deploys the entire platform including web panel
 #  Usage: bash start.sh
-# ═══════════════════════════════════════════════════════════
+#  Run as root on Ubuntu 22.04
+# =============================================================
 
 set -e
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[✓]${NC} $1"; }
-warn() { echo -e "${YELLOW}[!]${NC} $1"; }
-err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
-info() { echo -e "${CYAN}[→]${NC} $1"; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+log()   { echo -e "${GREEN}[✓]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
+err()   { echo -e "${RED}[✗]${NC} $1"; exit 1; }
+info()  { echo -e "${CYAN}[→]${NC} $1"; }
+title() { echo -e "\n${BOLD}${CYAN}$1${NC}\n"; }
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         MagicLamp Enterprise             ║${NC}"
-echo -e "${CYAN}║      One-Command VPS Deployment          ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
-echo ""
+clear
+echo -e "${CYAN}"
+echo "  ╔══════════════════════════════════════════════╗"
+echo "  ║         🪄  MagicLamp Enterprise             ║"
+echo "  ║      Full VPS Setup — One Command            ║"
+echo "  ╚══════════════════════════════════════════════╝"
+echo -e "${NC}"
 
-# ── 1. System check ─────────────────────────
-info "Checking system..."
-[[ $EUID -ne 0 ]] && err "Run as root: sudo bash start.sh"
-OS=$(cat /etc/os-release | grep "^ID=" | cut -d= -f2 | tr -d '"')
-[[ "$OS" != "ubuntu" ]] && warn "Tested on Ubuntu. Proceeding on $OS..."
-RAM=$(free -g | awk '/^Mem:/{print $2}')
-[[ $RAM -lt 8 ]] && warn "RAM: ${RAM}GB — recommended 12GB+"
-log "System OK — ${RAM}GB RAM, Ubuntu $OS"
+# ── Step 1: System Check ─────────────────────────────────────
+title "Step 1/9 — System Check"
+[[ $EUID -ne 0 ]] && err "Must run as root: sudo bash start.sh"
+RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+DISK_GB=$(df -BG / | awk 'NR==2{print $4}' | tr -d 'G')
+CPU_COUNT=$(nproc)
+VPS_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
 
-# ── 2. Install Docker ────────────────────────
+echo "  RAM:  ${RAM_GB}GB $([ $RAM_GB -ge 12 ] && echo '✅' || echo '⚠️  (12GB recommended)')"
+echo "  Disk: ${DISK_GB}GB $([ $DISK_GB -ge 30 ] && echo '✅' || echo '⚠️  (30GB+ recommended)')"
+echo "  CPUs: ${CPU_COUNT}"
+echo "  IP:   ${VPS_IP}"
+log "System check complete"
+
+# ── Step 2: Install Dependencies ─────────────────────────────
+title "Step 2/9 — Installing Dependencies"
+apt-get update -qq
+apt-get install -y -qq curl git ufw openssl nano htop
+
 if ! command -v docker &>/dev/null; then
   info "Installing Docker..."
   curl -fsSL https://get.docker.com | sh
-  systemctl enable docker && systemctl start docker
+  systemctl enable docker
+  systemctl start docker
   log "Docker installed"
 else
-  log "Docker already installed"
+  log "Docker $(docker --version | cut -d' ' -f3 | tr -d ',') already installed"
 fi
 
-if ! command -v docker-compose &>/dev/null; then
+if ! command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null; then
   info "Installing Docker Compose..."
-  curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+  COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d'"' -f4)
+  curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" \
     -o /usr/local/bin/docker-compose
   chmod +x /usr/local/bin/docker-compose
   log "Docker Compose installed"
+else
+  log "Docker Compose already installed"
 fi
 
-# ── 3. Firewall ──────────────────────────────
-info "Configuring firewall..."
-apt-get install -y ufw -qq
-ufw allow 22    # SSH
-ufw allow 80    # HTTP
-ufw allow 443   # HTTPS
+# ── Step 3: Firewall ─────────────────────────────────────────
+title "Step 3/9 — Firewall Configuration"
+ufw allow 22/tcp    comment "SSH"
+ufw allow 80/tcp    comment "HTTP"
+ufw allow 443/tcp   comment "HTTPS"
+ufw allow 8000/tcp  comment "Coolify Panel"
+ufw deny  11434/tcp comment "Ollama — internal only"
+ufw deny  9000/tcp  comment "Brain — via Nginx only"
+ufw deny  5678/tcp  comment "N8N — via Nginx only"
 ufw --force enable
-log "Firewall configured"
+log "Firewall: 22, 80, 443, 8000 open | 11434, 9000, 5678 blocked"
 
-# ── 4. Setup .env ────────────────────────────
+# ── Step 4: Environment Setup ────────────────────────────────
+title "Step 4/9 — Environment Configuration"
 if [ ! -f ".env" ]; then
   cp .env.example .env
+  warn "──────────────────────────────────────────"
+  warn "  .env created — you MUST fill these in:"
+  warn "  SUPABASE_URL"
+  warn "  SUPABASE_SERVICE_KEY"
+  warn "  TELEGRAM_BOT_TOKEN (optional)"
+  warn "  N8N_PASSWORD"
+  warn "──────────────────────────────────────────"
   echo ""
-  warn "═══════════════════════════════════════════"
-  warn "  .env file created — FILL IT IN NOW"
-  warn "  Required: SUPABASE_URL, SUPABASE_SERVICE_KEY"
-  warn "            JWT_SECRET, BRAIN_SECRET"
-  warn "  Run: nano .env"
-  warn "═══════════════════════════════════════════"
-  echo ""
-  read -p "Press ENTER after filling .env to continue..."
+  read -p "  Press ENTER after editing .env..." _
 fi
 
-# Auto-generate secrets if empty
-JWT_VAL=$(grep "^JWT_SECRET=" .env | cut -d= -f2)
-if [ -z "$JWT_VAL" ] || [ "$JWT_VAL" = "generate_with_openssl_rand_hex_32_here" ]; then
-  JWT=$(openssl rand -hex 32)
-  sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$JWT/" .env
-  log "JWT_SECRET auto-generated"
+# Auto-generate missing secrets
+auto_secret() {
+  KEY=$1; VAL=$(grep "^${KEY}=" .env | cut -d= -f2-)
+  if [ -z "$VAL" ] || echo "$VAL" | grep -q "generate_with\|your_"; then
+    NEW=$(openssl rand -hex 32)
+    if grep -q "^${KEY}=" .env; then
+      sed -i "s|^${KEY}=.*|${KEY}=${NEW}|" .env
+    else
+      echo "${KEY}=${NEW}" >> .env
+    fi
+    log "Auto-generated: ${KEY}"
+  fi
+}
+auto_secret "JWT_SECRET"
+auto_secret "BRAIN_SECRET"
+auto_secret "N8N_ENCRYPTION_KEY"
+
+# Write VPS IP to .env
+sed -i "s|^SERVER_HOST=.*|SERVER_HOST=${VPS_IP}|" .env 2>/dev/null || echo "SERVER_HOST=${VPS_IP}" >> .env
+log "Environment configured"
+
+# ── Step 5: Install Coolify ──────────────────────────────────
+title "Step 5/9 — Installing Coolify (Web Panel)"
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "coolify"; then
+  info "Installing Coolify — this takes 2-3 minutes..."
+  curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+  sleep 5
+  log "Coolify installed → http://${VPS_IP}:8000"
+else
+  log "Coolify already running"
 fi
 
-BRAIN_VAL=$(grep "^BRAIN_SECRET=" .env | cut -d= -f2)
-if [ -z "$BRAIN_VAL" ] || [ "$BRAIN_VAL" = "generate_with_openssl_rand_hex_32_here" ]; then
-  BRAIN=$(openssl rand -hex 32)
-  sed -i "s/^BRAIN_SECRET=.*/BRAIN_SECRET=$BRAIN/" .env
-  log "BRAIN_SECRET auto-generated"
-fi
+# ── Step 6: Create Data Directories ──────────────────────────
+title "Step 6/9 — Data Directories"
+mkdir -p data/{brain/chroma,brain/exports,ollama,n8n,ssl,certbot/www,certbot/conf}
+chmod -R 755 data/
+log "Data directories created at ./data/"
 
-N8N_VAL=$(grep "^N8N_ENCRYPTION_KEY=" .env | cut -d= -f2)
-if [ -z "$N8N_VAL" ] || [ "$N8N_VAL" = "generate_with_openssl_rand_hex_32_here" ]; then
-  N8N_ENC=$(openssl rand -hex 32)
-  sed -i "s/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=$N8N_ENC/" .env
-  log "N8N_ENCRYPTION_KEY auto-generated"
-fi
+# ── Step 7: Build and Start MagicLamp ────────────────────────
+title "Step 7/9 — Building MagicLamp"
+info "Pulling base images..."
+docker-compose pull ollama n8n 2>&1 | grep -E "Pulling|pulled|up to date" || true
 
-# ── 5. Create directories ────────────────────
-info "Creating data directories..."
-mkdir -p data/{brain/chroma,brain/exports,ollama,n8n,ssl}
-chmod 755 data
-log "Directories created"
-
-# ── 6. Build and start ───────────────────────
-info "Building MagicLamp (first build takes 5-10 min)..."
-docker-compose pull ollama n8n
-docker-compose build brain agent
+info "Building Brain and Agent (first time: ~5 min)..."
+docker-compose build --parallel brain agent
 
 info "Starting all services..."
 docker-compose up -d
 
-# ── 7. Wait for health ───────────────────────
-info "Waiting for services to be healthy..."
-sleep 15
-
-TRIES=0
-until docker-compose ps | grep "ml_brain" | grep -q "healthy" || [ $TRIES -gt 30 ]; do
-  echo -n "."
-  sleep 5
-  TRIES=$((TRIES+1))
+# ── Step 8: Wait for Health ───────────────────────────────────
+title "Step 8/9 — Waiting for Services"
+info "Waiting for services to pass health checks..."
+TRIES=0; MAX=40
+while [ $TRIES -lt $MAX ]; do
+  HEALTHY=$(docker-compose ps 2>/dev/null | grep -c "healthy" || echo 0)
+  TOTAL=$(docker-compose ps 2>/dev/null | grep -c "Up" || echo 0)
+  echo -ne "\r  Containers healthy: ${HEALTHY}/${TOTAL} (${TRIES}/${MAX} checks)"
+  [ $HEALTHY -ge 2 ] && break
+  sleep 5; TRIES=$((TRIES+1))
 done
 echo ""
 
-# ── 8. Pull AI model ─────────────────────────
-OLLAMA_MODEL=$(grep "^OLLAMA_MODEL=" .env | cut -d= -f2)
-OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
-info "Pulling AI model: $OLLAMA_MODEL (may take 5-15 min)..."
-docker exec ml_ollama ollama pull $OLLAMA_MODEL &
-log "Model pull started in background"
+# ── Step 9: Final Setup ───────────────────────────────────────
+title "Step 9/9 — Final Configuration"
 
-# ── 9. Set Telegram webhook ──────────────────
-TG_TOKEN=$(grep "^TELEGRAM_BOT_TOKEN=" .env | cut -d= -f2)
-VPS_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-if [ ! -z "$TG_TOKEN" ] && [ "$TG_TOKEN" != "your_telegram_bot_token" ]; then
+# Pull AI model in background
+OLLAMA_MODEL=$(grep "^OLLAMA_MODEL=" .env | cut -d= -f2-)
+OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+info "Pulling AI model: ${OLLAMA_MODEL} (background, ~5-15 min)..."
+docker exec ml_ollama ollama pull ${OLLAMA_MODEL} &
+log "Model pull started in background (check: docker exec ml_ollama ollama list)"
+
+# Set Telegram webhook
+TG_TOKEN=$(grep "^TELEGRAM_BOT_TOKEN=" .env | cut -d= -f2-)
+if [ ! -z "$TG_TOKEN" ] && ! echo "$TG_TOKEN" | grep -q "your_"; then
   curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/setWebhook" \
-    -d "url=http://${VPS_IP}/telegram/webhook" > /dev/null
-  log "Telegram webhook set → http://${VPS_IP}/telegram/webhook"
+    -d "url=http://${VPS_IP}/telegram/webhook" | grep -q "true" && \
+    log "Telegram webhook registered" || warn "Telegram webhook failed"
 fi
 
-# ── 10. Final output ─────────────────────────
+# Register Coolify SSH key
+if command -v coolify &>/dev/null 2>&1; then
+  info "Coolify SSH key info:"
+  cat ~/.ssh/coolify.pub 2>/dev/null || true
+fi
+
+# ── Done ─────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     MagicLamp is LIVE! 🪄               ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║     🪄  MagicLamp is LIVE!                   ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}Platform UI:${NC}    http://${VPS_IP}/"
-echo -e "  ${CYAN}Brain API:${NC}      http://${VPS_IP}/api/v1/"
-echo -e "  ${CYAN}API Docs:${NC}       http://${VPS_IP}/docs"
-echo -e "  ${CYAN}N8N Workflows:${NC} http://${VPS_IP}/n8n/"
+echo -e "  ${BOLD}Platform URLs:${NC}"
+echo -e "  ${CYAN}MagicLamp UI:${NC}       http://${VPS_IP}/"
+echo -e "  ${CYAN}Coolify Panel:${NC}      http://${VPS_IP}:8000"
+echo -e "  ${CYAN}Brain API Docs:${NC}     http://${VPS_IP}/docs"
+echo -e "  ${CYAN}N8N Workflows:${NC}      http://${VPS_IP}/n8n/"
+echo -e "  ${CYAN}Agent Health:${NC}       http://${VPS_IP}/agent/health"
 echo ""
-echo -e "  ${YELLOW}Default login:${NC} admin / admin123"
-echo -e "  ${YELLOW}Change password immediately in Settings${NC}"
+echo -e "  ${BOLD}Default Credentials:${NC}"
+echo -e "  ${YELLOW}MagicLamp login:${NC}    admin / admin123  ← change immediately"
+echo -e "  ${YELLOW}N8N login:${NC}          admin / (your N8N_PASSWORD from .env)"
+echo -e "  ${YELLOW}Coolify:${NC}            Create account at http://${VPS_IP}:8000"
 echo ""
-echo -e "  ${CYAN}View logs:${NC}      docker-compose logs -f"
-echo -e "  ${CYAN}Stop:${NC}           docker-compose down"
-echo -e "  ${CYAN}Update:${NC}         git pull && docker-compose build && docker-compose up -d"
+echo -e "  ${BOLD}Next Steps:${NC}"
+echo -e "  1. Open Coolify: http://${VPS_IP}:8000"
+echo -e "  2. Connect GitHub repo: github.com/$(git remote get-url origin 2>/dev/null | cut -d/ -f4-5 | sed 's/.git//' || echo 'your/repo')"
+echo -e "  3. Add your .env variables in Coolify"
+echo -e "  4. Enable auto-deploy on git push"
+echo ""
+echo -e "  ${BOLD}Useful Commands:${NC}"
+echo -e "  make logs         → view all logs"
+echo -e "  make status       → container health"
+echo -e "  make pull-model MODEL=mistral:7b"
+echo -e "  make backup       → backup all data"
 echo ""
