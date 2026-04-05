@@ -103,9 +103,15 @@ Copy from your `.env` file into Coolify's Environment Variables panel.
 All from your laptop — no SSH needed after initial setup:
 
 ```bash
-# Deploy code update
+# Full deploy — pull, build, start all, health check
+make deploy
+
+# Deploy code update (auto via Coolify)
 git push origin main
 # → Coolify auto-detects → rebuilds brain/agent → restarts
+
+# Update brain + agent only
+make update
 
 # View logs (in Coolify UI or terminal)
 make logs
@@ -122,6 +128,30 @@ make backup
 # Trigger daily briefing manually
 make trigger-briefing
 ```
+
+---
+
+## GitHub Actions — Auto Deploy on Push
+
+The repo includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) that auto-deploys to your VPS on every push to `main`.
+
+### Setup
+
+1. Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+2. Add these secrets:
+
+| Secret | Value |
+|---|---|
+| `VPS_HOST` | Your VPS IP address |
+| `VPS_USER` | SSH username (usually `root`) |
+| `VPS_SSH_KEY` | Private SSH key (contents of `~/.ssh/id_ed25519`) |
+| `VPS_SSH_PORT` | SSH port (optional, defaults to `22`) |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token (optional — for deploy notifications) |
+| `TELEGRAM_ADMIN_CHAT_ID` | Telegram chat ID (optional) |
+
+3. Push to `main` → GitHub Actions deploys automatically
+4. You can also trigger manually: **Actions** → **Deploy MagicLamp** → **Run workflow**
+   - Choose services to rebuild: `all`, `brain`, or `agent`
 
 ---
 

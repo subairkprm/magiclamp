@@ -3,7 +3,7 @@
 #  Usage: make <command>
 # =============================================================
 
-.PHONY: help start stop restart logs status build update \
+.PHONY: help start stop restart logs status build update deploy \
         pull-model list-models shell-brain shell-agent \
         backup restore ssl coolify-logs coolify-restart \
         brain-logs agent-logs n8n-logs ollama-logs
@@ -18,7 +18,8 @@ help:
 	@echo "    make stop           Stop entire stack"
 	@echo "    make restart        Restart all services"
 	@echo "    make build          Rebuild brain + agent"
-	@echo "    make update         Pull latest git + rebuild"
+	@echo "    make update         Pull latest git + rebuild brain/agent"
+	@echo "    make deploy         Full deploy — pull, build, start all, health check"
 	@echo ""
 	@echo "  Monitoring:"
 	@echo "    make logs           All service logs"
@@ -65,6 +66,41 @@ update:
 	docker-compose build --parallel brain agent
 	docker-compose up -d brain agent
 	@echo "Brain and Agent updated."
+
+deploy:
+	@echo ""
+	@echo "  🪄  MagicLamp — Full Deploy"
+	@echo ""
+	@echo "── Pulling latest code ──"
+	git pull origin $$(git rev-parse --abbrev-ref HEAD)
+	@echo ""
+	@echo "── Pulling base images ──"
+	docker-compose pull ollama n8n
+	@echo ""
+	@echo "── Building Brain + Agent ──"
+	docker-compose build --parallel brain agent
+	@echo ""
+	@echo "── Starting all services ──"
+	docker-compose up -d
+	@echo ""
+	@echo "── Waiting for health checks ──"
+	@TRIES=0; MAX=30; \
+	while [ $$TRIES -lt $$MAX ]; do \
+	  HEALTHY=$$(docker-compose ps 2>/dev/null | grep -c "healthy" || echo 0); \
+	  TOTAL=$$(docker-compose ps 2>/dev/null | grep -c "Up" || echo 0); \
+	  printf "\r  Containers healthy: %s/%s (%s/%s checks)" "$$HEALTHY" "$$TOTAL" "$$TRIES" "$$MAX"; \
+	  [ "$$HEALTHY" -ge 2 ] && break; \
+	  sleep 5; TRIES=$$((TRIES+1)); \
+	done; echo ""
+	@echo ""
+	@echo "── Deploy Status ──"
+	@docker-compose ps
+	@echo ""
+	@echo "── Brain API Health ──"
+	@curl -sf http://localhost:9000/health 2>/dev/null | python3 -m json.tool || echo "  Brain starting up..."
+	@echo ""
+	@echo "  ✅  MagicLamp deploy complete!"
+	@echo ""
 
 # ── Monitoring ────────────────────────────────────────────────
 logs:

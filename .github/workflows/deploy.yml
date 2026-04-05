@@ -1,0 +1,91 @@
+# =============================================================
+#  MAGICLAMP — Deploy to VPS via SSH
+#  Triggers on push to main or manual dispatch
+#  Requires secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY
+# =============================================================
+
+name: Deploy MagicLamp
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Services to rebuild (all, brain, agent)"
+        required: false
+        default: "all"
+
+env:
+  DEPLOY_DIR: /opt/magiclamp
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_DIR }}
+
+            echo "── Pulling latest code ──"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "── Pulling base images ──"
+            docker-compose pull ollama n8n
+
+            SERVICES="${{ github.event.inputs.services || 'all' }}"
+            if [ "$SERVICES" = "all" ]; then
+              echo "── Building all custom images ──"
+              docker-compose build --parallel brain agent
+              echo "── Starting all services ──"
+              docker-compose up -d
+            else
+              echo "── Building: $SERVICES ──"
+              docker-compose build $SERVICES
+              echo "── Restarting: $SERVICES ──"
+              docker-compose up -d $SERVICES
+            fi
+
+            echo "── Waiting for health checks ──"
+            TRIES=0; MAX=30
+            while [ $TRIES -lt $MAX ]; do
+              HEALTHY=$(docker-compose ps 2>/dev/null | grep -c "healthy" || echo 0)
+              [ "$HEALTHY" -ge 2 ] && break
+              sleep 5; TRIES=$((TRIES+1))
+            done
+
+            echo "── Deploy Status ──"
+            docker-compose ps
+            curl -sf http://localhost:9000/health || echo "Brain still starting..."
+            echo ""
+            echo "✅ Deploy complete!"
+
+      - name: Notify Telegram
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}" ]; then
+            STATUS="${{ job.status }}"
+            EMOJI="✅"
+            [ "$STATUS" != "success" ] && EMOJI="❌"
+            MSG="${EMOJI} MagicLamp deploy ${STATUS}%0A%0ACommit: ${{ github.sha }}%0ABranch: ${{ github.ref_name }}%0ABy: ${{ github.actor }}"
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}&text=${MSG}&parse_mode=HTML" > /dev/null
+          fi
