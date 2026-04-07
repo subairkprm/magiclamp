@@ -1,5 +1,5 @@
 """MagicLamp API v1 — Brain Routes (memory, reasoning, training, scheduler)"""
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel
 from typing import Any, Optional, Dict, List
 from supabase import create_client
@@ -7,12 +7,13 @@ from core.config import settings
 from core.auth import get_current_user, require_admin, CurrentUser
 from core.circuit import ollama_circuit
 from core.logger import get_logger
+from core.exceptions import TaskNotFoundError, BrainReasoningError, AIEngineUnavailableError, AuthorizationError
 from core.validation import (
     RememberRequest, ObserveRequest, ReasonLeadRequest,
     ReasonAskRequest, ReasonDecideRequest, TrainingAddRequest,
     RecordChangeRequest, sanitize_string
 )
-import httpx, json, asyncio
+import httpx, json, asyncio, uuid
 from datetime import datetime
 from functools import lru_cache
 from time import time
@@ -27,6 +28,37 @@ from main import limiter
 # Cache for fact loading with TTL
 _fact_cache: Dict[str, tuple[List[Dict], float]] = {}
 _FACT_CACHE_TTL = 300  # 5 minutes
+
+# In-memory task store (upgrade to database/Redis for production)
+_task_store: Dict[str, Dict[str, Any]] = {}
+
+def _create_task(task_type: str, user_id: str) -> str:
+    """Create a new background task and return task_id."""
+    task_id = str(uuid.uuid4())
+    _task_store[task_id] = {
+        "task_id": task_id,
+        "task_type": task_type,
+        "status": "processing",
+        "user_id": user_id,
+        "created_at": datetime.utcnow().isoformat(),
+        "result": None,
+        "error": None
+    }
+    return task_id
+
+def _update_task_success(task_id: str, result: Any):
+    """Mark task as completed with result."""
+    if task_id in _task_store:
+        _task_store[task_id]["status"] = "completed"
+        _task_store[task_id]["result"] = result
+        _task_store[task_id]["completed_at"] = datetime.utcnow().isoformat()
+
+def _update_task_error(task_id: str, error: str):
+    """Mark task as failed with error message."""
+    if task_id in _task_store:
+        _task_store[task_id]["status"] = "failed"
+        _task_store[task_id]["error"] = error
+        _task_store[task_id]["completed_at"] = datetime.utcnow().isoformat()
 
 # ── HELPERS ───────────────────────────────────
 async def _llm(prompt: str, system: Optional[str] = None, json_mode: bool = False) -> str:
@@ -139,71 +171,154 @@ async def memory_stats(request: Request, user: CurrentUser = Depends(get_current
     }
 
 # ── REASONING ─────────────────────────────────
-@router.post("/reason/lead")
-@limiter.limit(settings.RATE_LIMIT_AI)
-async def reason_lead(request: Request, body: ReasonLeadRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    lead = body.lead
-    prompt = f"""Analyse this UAE banking lead and return JSON:
+# Background task functions for LLM operations
+async def _process_reason_lead(task_id: str, lead: Dict, org_id: Optional[str]):
+    """Background task to process lead reasoning."""
+    try:
+        prompt = f"""Analyse this UAE banking lead and return JSON:
 {{"score":0-100,"priority":"low|medium|high|urgent","eligibility":"likely_eligible|borderline|likely_rejected",
 "key_risks":[],"opportunities":[],"recommended_products":[],"next_action":"","reasoning":""}}
 
 Lead: {json.dumps(lead)}"""
-    result_str = await _llm(prompt, json_mode=True)
-    try:
-        result = json.loads(result_str)
-    except:
-        result = {"score": 50, "priority": "medium", "reasoning": result_str[:200]}
+        result_str = await _llm(prompt, json_mode=True)
+        try:
+            result = json.loads(result_str)
+        except:
+            result = {"score": 50, "priority": "medium", "reasoning": result_str[:200]}
 
-    # Auto-store as training data
-    supabase.table("brain_training_data").insert({
-        "org_id": _org(user),
-        "input":  f"Analyse lead: {json.dumps(lead)[:300]}",
-        "output": json.dumps(result)[:500],
-        "source": "lead_analysis",
-        "quality": 1.5,
-    }).execute()
-    return result
+        # Auto-store as training data
+        supabase.table("brain_training_data").insert({
+            "org_id": org_id,
+            "input":  f"Analyse lead: {json.dumps(lead)[:300]}",
+            "output": json.dumps(result)[:500],
+            "source": "lead_analysis",
+            "quality": 1.5,
+        }).execute()
+
+        _update_task_success(task_id, result)
+    except Exception as e:
+        log.error(f"Lead reasoning task {task_id} failed: {str(e)}")
+        _update_task_error(task_id, str(e))
+
+async def _process_reason_ask(task_id: str, question: str, org_id: Optional[str]):
+    """Background task to process question reasoning."""
+    try:
+        facts = _get_cached_facts()
+        fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
+        prompt = f"Answer using your knowledge and these facts:\n{fact_ctx}\n\nQuestion: {question}"
+        answer = await _llm(prompt)
+
+        supabase.table("brain_training_data").insert({
+            "org_id": org_id,
+            "input":  question,
+            "output": answer[:500],
+            "source": "api_ask",
+            "quality": 1.0,
+        }).execute()
+
+        result = {"question": question, "answer": answer}
+        _update_task_success(task_id, result)
+    except Exception as e:
+        log.error(f"Ask reasoning task {task_id} failed: {str(e)}")
+        _update_task_error(task_id, str(e))
+
+async def _process_reason_decide(task_id: str, situation: str, options: List[str], org_id: Optional[str]):
+    """Background task to process decision reasoning."""
+    try:
+        opts_text = f"\nOptions: {', '.join(options)}" if options else ""
+        prompt = f"""Make a decision and return JSON:
+{{"decision":"","reasoning":"","confidence":0.0,"risks":[],"expected_outcome":"","follow_up_actions":[]}}
+Situation: {situation}{opts_text}"""
+        result_str = await _llm(prompt, json_mode=True)
+        try:
+            result = json.loads(result_str)
+        except:
+            result = {"decision": "manual_review", "reasoning": result_str[:200]}
+
+        supabase.table("brain_decisions").insert({
+            "org_id":    org_id,
+            "trigger":   situation[:300],
+            "reasoning": result.get("reasoning", "")[:500],
+            "action":    result.get("decision", "")[:200],
+            "confidence": result.get("confidence", 0.5),
+        }).execute()
+
+        _update_task_success(task_id, result)
+    except Exception as e:
+        log.error(f"Decide reasoning task {task_id} failed: {str(e)}")
+        _update_task_error(task_id, str(e))
+
+@router.post("/reason/lead")
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def reason_lead(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    body: ReasonLeadRequest,
+    user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Analyze a banking lead (async background processing)."""
+    task_id = _create_task("reason_lead", user.user_id)
+    background_tasks.add_task(_process_reason_lead, task_id, body.lead, _org(user))
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "Lead analysis started. Use GET /brain/tasks/{task_id} to check status."
+    }
 
 @router.post("/reason/ask")
 @limiter.limit(settings.RATE_LIMIT_AI)
-async def reason_ask(request: Request, body: ReasonAskRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
-    question = body.question
-    # Load relevant facts for context with caching
-    facts = _get_cached_facts()
-    fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
-    prompt = f"Answer using your knowledge and these facts:\n{fact_ctx}\n\nQuestion: {question}"
-    answer = await _llm(prompt)
-    supabase.table("brain_training_data").insert({
-        "org_id": _org(user),
-        "input":  question,
-        "output": answer[:500],
-        "source": "api_ask",
-        "quality": 1.0,
-    }).execute()
-    return {"question": question, "answer": answer}
+async def reason_ask(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    body: ReasonAskRequest,
+    user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Ask a question (async background processing)."""
+    task_id = _create_task("reason_ask", user.user_id)
+    background_tasks.add_task(_process_reason_ask, task_id, body.question, _org(user))
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "Question processing started. Use GET /brain/tasks/{task_id} to check status."
+    }
 
 @router.post("/reason/decide")
 @limiter.limit(settings.RATE_LIMIT_AI)
-async def reason_decide(request: Request, body: ReasonDecideRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    situation = body.situation
-    options   = body.options or []
-    opts_text = f"\nOptions: {', '.join(options)}" if options else ""
-    prompt = f"""Make a decision and return JSON:
-{{"decision":"","reasoning":"","confidence":0.0,"risks":[],"expected_outcome":"","follow_up_actions":[]}}
-Situation: {situation}{opts_text}"""
-    result_str = await _llm(prompt, json_mode=True)
-    try:
-        result = json.loads(result_str)
-    except:
-        result = {"decision": "manual_review", "reasoning": result_str[:200]}
-    supabase.table("brain_decisions").insert({
-        "org_id":    _org(user),
-        "trigger":   situation[:300],
-        "reasoning": result.get("reasoning", "")[:500],
-        "action":    result.get("decision", "")[:200],
-        "confidence": result.get("confidence", 0.5),
-    }).execute()
-    return result
+async def reason_decide(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    body: ReasonDecideRequest,
+    user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Make a decision (async background processing)."""
+    task_id = _create_task("reason_decide", user.user_id)
+    background_tasks.add_task(_process_reason_decide, task_id, body.situation, body.options or [], _org(user))
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "Decision processing started. Use GET /brain/tasks/{task_id} to check status."
+    }
+
+@router.get("/tasks/{task_id}")
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def get_task_status(
+    request: Request,
+    task_id: str,
+    user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Get the status of a background task."""
+    task_id = sanitize_string(task_id, max_length=50)
+
+    if task_id not in _task_store:
+        raise TaskNotFoundError(task_id)
+
+    task = _task_store[task_id]
+
+    # Verify user owns this task
+    if task["user_id"] != user.user_id:
+        raise AuthorizationError("You do not have permission to view this task")
+
+    return task
 
 @router.get("/reason/self-analyse")
 @limiter.limit(settings.RATE_LIMIT_AI)
