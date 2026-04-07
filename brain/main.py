@@ -7,15 +7,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from core.config import settings
 from core.logger import get_logger
 from core.registry import registry
 from core.bus import bus
 from core.audit import AuditMiddleware
+from core.exceptions import MagicLampException
 from api.v1 import auth, admin, brain as brain_api
 
 log = get_logger("main")
@@ -59,6 +62,32 @@ app = FastAPI(
 # Register rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── EXCEPTION HANDLERS ────────────────────────────
+@app.exception_handler(MagicLampException)
+async def magiclamp_exception_handler(request: Request, exc: MagicLampException):
+    """Handle custom MagicLamp exceptions with clean JSON responses."""
+    log.warning(f"MagicLamp exception: {exc.error_code} - {exc.message}", extra={"details": exc.details})
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict()
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch-all handler for unhandled exceptions."""
+    log.error(f"Unhandled exception: {type(exc).__name__} - {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "INTERNAL_SERVER_ERROR",
+            "message": "An unexpected error occurred",
+            "status_code": 500
+        }
+    )
+
+# ── PROMETHEUS METRICS ────────────────────────────
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── MIDDLEWARE ────────────────────────────────
 # Configure CORS based on environment
