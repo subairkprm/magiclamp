@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_AI:       str = "20/minute"
     RATE_LIMIT_AUTH:     str = "5/minute"
 
+    # ── CORS ─────────────────────────────────
+    CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
