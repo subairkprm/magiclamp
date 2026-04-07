@@ -9,6 +9,11 @@ from core.audit import log_action
 from core.circuit import ollama_circuit, supabase_circuit, telegram_circuit, n8n_circuit
 from core.registry import registry
 from core.bus import bus
+from core.validation import (
+    CreateUserRequest, CreateOrgRequest, UpdateOrgRequest,
+    CreateAPIKeyRequest, CreateWebhookRequest, AuditLogQuery,
+    ResetPasswordRequest, sanitize_string
+)
 import httpx, secrets
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -40,19 +45,22 @@ async def list_orgs(admin: CurrentUser = Depends(require_admin)):
     return supabase.table("organizations").select("*").execute().data
 
 @router.post("/orgs")
-async def create_org(body: dict, admin: CurrentUser = Depends(require_admin)):
+async def create_org(body: CreateOrgRequest, admin: CurrentUser = Depends(require_admin)):
     result = supabase.table("organizations").insert({
-        "name": body["name"],
-        "slug": body["slug"],
-        "plan": body.get("plan", "free"),
+        "name": body.name,
+        "slug": body.slug,
+        "plan": body.plan,
     }).execute()
-    log_action("org.created", "organization", result.data[0]["id"], new_data=body, user_id=admin.user_id)
+    log_action("org.created", "organization", result.data[0]["id"], new_data=body.dict(), user_id=admin.user_id)
     return result.data[0]
 
 @router.patch("/orgs/{org_id}")
-async def update_org(org_id: str, body: dict, admin: CurrentUser = Depends(require_admin)):
-    result = supabase.table("organizations").update(body).eq("id", org_id).execute()
-    log_action("org.updated", "organization", org_id, new_data=body, user_id=admin.user_id)
+async def update_org(org_id: str, body: UpdateOrgRequest, admin: CurrentUser = Depends(require_admin)):
+    # Sanitize org_id to prevent injection
+    org_id = sanitize_string(org_id, max_length=50)
+    update_data = body.dict(exclude_unset=True)
+    result = supabase.table("organizations").update(update_data).eq("id", org_id).execute()
+    log_action("org.updated", "organization", org_id, new_data=update_data, user_id=admin.user_id)
     return result.data[0] if result.data else {}
 
 # ── USERS ─────────────────────────────────────
@@ -60,15 +68,8 @@ async def update_org(org_id: str, body: dict, admin: CurrentUser = Depends(requi
 async def list_users(admin: CurrentUser = Depends(require_admin)):
     return supabase.table("users").select("id,name,email,role,created_at").execute().data
 
-class CreateUserBody(BaseModel):
-    username: str
-    email:    str
-    password: str
-    role:     str = "user"
-    team_id:  Optional[int] = None
-
 @router.post("/users")
-async def create_user(body: CreateUserBody, admin: CurrentUser = Depends(require_admin)):
+async def create_user(body: CreateUserRequest, admin: CurrentUser = Depends(require_admin)):
     existing = supabase.table("users").select("id").eq("email", body.email).execute()
     if existing.data:
         raise HTTPException(400, "Email already exists")
@@ -97,11 +98,9 @@ async def delete_user(user_id: int, admin: CurrentUser = Depends(require_admin))
     return {"ok": True}
 
 @router.patch("/users/{user_id}/password")
-async def reset_user_password(user_id: int, body: dict, admin: CurrentUser = Depends(require_admin)):
-    pw = body.get("password", "")
-    if len(pw) < 6:
-        raise HTTPException(400, "Password min 6 chars")
-    supabase.table("users").update({"password_hash": hash_password(pw)}).eq("id", user_id).execute()
+async def reset_user_password(user_id: int, body: ResetPasswordRequest, admin: CurrentUser = Depends(require_admin)):
+    # Password validation now handled by Pydantic model
+    supabase.table("users").update({"password_hash": hash_password(body.password)}).eq("id", user_id).execute()
     log_action("user.password_reset", "user", str(user_id), user_id=admin.user_id)
     return {"ok": True}
 
@@ -114,15 +113,15 @@ async def list_api_keys(admin: CurrentUser = Depends(require_admin)):
     return data
 
 @router.post("/api-keys")
-async def create_api_key(body: dict, admin: CurrentUser = Depends(require_admin)):
+async def create_api_key(body: CreateAPIKeyRequest, admin: CurrentUser = Depends(require_admin)):
     if not admin.org_id:
         raise HTTPException(400, "No org associated with this admin")
     plain_key, _ = generate_api_key(
         admin.org_id,
-        body.get("name", "API Key"),
-        body.get("scopes", [])
+        body.name,
+        body.scopes
     )
-    log_action("api_key.created", "api_key", None, new_data={"name": body.get("name")}, user_id=admin.user_id)
+    log_action("api_key.created", "api_key", None, new_data={"name": body.name}, user_id=admin.user_id)
     return {"key": plain_key, "note": "Store this key — it will not be shown again"}
 
 @router.delete("/api-keys/{key_id}")
@@ -137,12 +136,12 @@ async def list_webhooks(admin: CurrentUser = Depends(require_admin)):
     return supabase.table("webhooks").select("id,name,url,events,is_active,last_called,failure_count").execute().data
 
 @router.post("/webhooks")
-async def create_webhook(body: dict, admin: CurrentUser = Depends(require_admin)):
+async def create_webhook(body: CreateWebhookRequest, admin: CurrentUser = Depends(require_admin)):
     result = supabase.table("webhooks").insert({
         "org_id":  admin.org_id,
-        "name":    body.get("name", "Webhook"),
-        "url":     body["url"],
-        "events":  body.get("events", []),
+        "name":    body.name,
+        "url":     body.url,
+        "events":  body.events,
     }).execute()
     log_action("webhook.created", "webhook", result.data[0]["id"], user_id=admin.user_id)
     return result.data[0]
@@ -169,13 +168,13 @@ async def test_webhook(webhook_id: str, admin: CurrentUser = Depends(require_adm
 # ── AUDIT LOG ─────────────────────────────────
 @router.get("/audit-log")
 async def get_audit_log(
-    limit: int = 50,
-    action: str = None,
+    query: AuditLogQuery = Depends(),
     admin: CurrentUser = Depends(require_admin)
 ):
-    q = supabase.table("audit_log").select("*").order("created_at", desc=True).limit(limit)
-    if action:
-        q = q.like("action", f"%{action}%")
+    q = supabase.table("audit_log").select("*").order("created_at", desc=True).limit(query.limit)
+    if query.action:
+        # Use parameterized query, sanitized by Pydantic model
+        q = q.like("action", f"%{query.action}%")
     return q.execute().data
 
 # ── INTEGRATIONS ─────────────────────────────
@@ -185,6 +184,8 @@ async def list_integrations(admin: CurrentUser = Depends(require_admin)):
 
 @router.put("/integrations/{type}")
 async def upsert_integration(type: str, body: dict, admin: CurrentUser = Depends(require_admin)):
+    # Sanitize type parameter
+    type = sanitize_string(type, max_length=50)
     existing = supabase.table("integrations").select("id").eq("type", type).execute()
     if existing.data:
         supabase.table("integrations").update({"config": body.get("config", {}), "status": "active"})\

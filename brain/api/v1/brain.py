@@ -7,6 +7,11 @@ from core.config import settings
 from core.auth import get_current_user, require_admin, CurrentUser
 from core.circuit import ollama_circuit
 from core.logger import get_logger
+from core.validation import (
+    RememberRequest, ObserveRequest, ReasonLeadRequest,
+    ReasonAskRequest, ReasonDecideRequest, TrainingAddRequest,
+    RecordChangeRequest, sanitize_string
+)
 import httpx, json, asyncio
 from datetime import datetime
 
@@ -41,19 +46,21 @@ def _org(user: CurrentUser) -> Optional[str]:
 
 # ── MEMORY ────────────────────────────────────
 @router.post("/memory/remember")
-async def remember(body: dict, user: CurrentUser = Depends(get_current_user)):
+async def remember(body: RememberRequest, user: CurrentUser = Depends(get_current_user)):
     supabase.table("brain_facts").upsert({
         "org_id":     _org(user),
-        "key":        body["key"],
-        "value":      json.dumps(body["value"]) if not isinstance(body["value"], str) else body["value"],
-        "source":     body.get("source", "api"),
-        "confidence": body.get("confidence", 1.0),
+        "key":        body.key,
+        "value":      json.dumps(body.value) if not isinstance(body.value, str) else body.value,
+        "source":     body.source,
+        "confidence": body.confidence,
         "updated_at": datetime.utcnow().isoformat(),
     }, on_conflict="org_id,key").execute()
-    return {"ok": True, "key": body["key"]}
+    return {"ok": True, "key": body.key}
 
 @router.get("/memory/recall/{key}")
 async def recall(key: str, user: CurrentUser = Depends(get_current_user)):
+    # Sanitize key to prevent injection
+    key = sanitize_string(key, max_length=100)
     result = supabase.table("brain_facts").select("*")\
         .eq("key", key).execute()
     if result.data:
@@ -70,14 +77,14 @@ async def all_facts(user: CurrentUser = Depends(get_current_user)):
     return {r["key"]: r["value"] for r in result.data}
 
 @router.post("/memory/observe")
-async def observe(body: dict, user: CurrentUser = Depends(get_current_user)):
+async def observe(body: ObserveRequest, user: CurrentUser = Depends(get_current_user)):
     supabase.table("brain_events").insert({
         "org_id":     _org(user),
-        "event_type": body.get("event_type", "observation"),
-        "category":   body.get("category", "general"),
-        "data":       {"text": body["text"], **(body.get("metadata") or {})},
-        "summary":    body["text"][:200],
-        "importance": body.get("importance", 1),
+        "event_type": body.event_type,
+        "category":   body.category,
+        "data":       {"text": body.text, **(body.metadata or {})},
+        "summary":    body.text[:200],
+        "importance": body.importance,
     }).execute()
     return {"ok": True}
 
@@ -106,8 +113,8 @@ async def memory_stats(user: CurrentUser = Depends(get_current_user)):
 
 # ── REASONING ─────────────────────────────────
 @router.post("/reason/lead")
-async def reason_lead(body: dict, user: CurrentUser = Depends(get_current_user)):
-    lead = body.get("lead", {})
+async def reason_lead(body: ReasonLeadRequest, user: CurrentUser = Depends(get_current_user)):
+    lead = body.lead
     prompt = f"""Analyse this UAE banking lead and return JSON:
 {{"score":0-100,"priority":"low|medium|high|urgent","eligibility":"likely_eligible|borderline|likely_rejected",
 "key_risks":[],"opportunities":[],"recommended_products":[],"next_action":"","reasoning":""}}
@@ -130,8 +137,8 @@ Lead: {json.dumps(lead)}"""
     return result
 
 @router.post("/reason/ask")
-async def reason_ask(body: dict, user: CurrentUser = Depends(get_current_user)):
-    question = body.get("question", "")
+async def reason_ask(body: ReasonAskRequest, user: CurrentUser = Depends(get_current_user)):
+    question = body.question
     # Load relevant facts for context
     facts = supabase.table("brain_facts").select("key,value").limit(20).execute().data
     fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
@@ -147,9 +154,9 @@ async def reason_ask(body: dict, user: CurrentUser = Depends(get_current_user)):
     return {"question": question, "answer": answer}
 
 @router.post("/reason/decide")
-async def reason_decide(body: dict, user: CurrentUser = Depends(get_current_user)):
-    situation = body.get("situation", "")
-    options   = body.get("options", [])
+async def reason_decide(body: ReasonDecideRequest, user: CurrentUser = Depends(get_current_user)):
+    situation = body.situation
+    options   = body.options or []
     opts_text = f"\nOptions: {', '.join(options)}" if options else ""
     prompt = f"""Make a decision and return JSON:
 {{"decision":"","reasoning":"","confidence":0.0,"risks":[],"expected_outcome":"","follow_up_actions":[]}}
@@ -197,14 +204,14 @@ async def training_stats(user: CurrentUser = Depends(get_current_user)):
     return {"total_training_samples": count, "ready_for_export": count >= 100}
 
 @router.post("/training/add")
-async def training_add(body: dict, user: CurrentUser = Depends(get_current_user)):
+async def training_add(body: TrainingAddRequest, user: CurrentUser = Depends(get_current_user)):
     supabase.table("brain_training_data").insert({
         "org_id":  _org(user),
-        "input":   body.get("input_text", ""),
-        "output":  body.get("output_text", ""),
-        "source":  body.get("source", "manual"),
-        "quality": body.get("quality", 1.0),
-        "verified": body.get("source") == "manual",
+        "input":   body.input_text,
+        "output":  body.output_text,
+        "source":  body.source,
+        "quality": body.quality,
+        "verified": body.source == "manual",
     }).execute()
     count = supabase.table("brain_training_data").select("id", count="exact").execute().count or 0
     return {"ok": True, "total": count}
@@ -230,21 +237,21 @@ async def training_export(min_quality: float = 0.8, admin: CurrentUser = Depends
 
 # ── CHANGES ───────────────────────────────────
 @router.post("/changes/record")
-async def record_change(body: dict, user: CurrentUser = Depends(get_current_user)):
-    what = body.get("what", "")
-    text = f"CHANGE: {what} changed from '{body.get('from_val','')}' to '{body.get('to_val','')}'. Reason: {body.get('reason','')}"
+async def record_change(body: RecordChangeRequest, user: CurrentUser = Depends(get_current_user)):
+    what = body.what
+    text = f"CHANGE: {what} changed from '{body.from_val}' to '{body.to_val}'. Reason: {body.reason}"
     supabase.table("brain_events").insert({
         "org_id":     _org(user),
         "event_type": "change_recorded",
         "category":   "changes",
-        "data":       body,
+        "data":       body.dict(),
         "summary":    text[:200],
         "importance": 3,
     }).execute()
     supabase.table("brain_facts").upsert({
         "org_id": _org(user),
         "key":    f"change.{what}.latest",
-        "value":  json.dumps({"from": body.get("from_val"), "to": body.get("to_val"), "reason": body.get("reason"), "ts": datetime.utcnow().isoformat()}),
+        "value":  json.dumps({"from": body.from_val, "to": body.to_val, "reason": body.reason, "ts": datetime.utcnow().isoformat()}),
         "source": "change_record",
     }, on_conflict="org_id,key").execute()
     return {"ok": True, "remembered": text[:100]}

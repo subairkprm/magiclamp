@@ -7,32 +7,32 @@ from core.auth import (hash_password, verify_password, create_access_token,
                        create_refresh_token, decode_token, get_current_user, CurrentUser)
 from core.audit import log_action
 from core.logger import get_logger
+from core.validation import LoginRequest, ChangePasswordRequest
 
 log = get_logger("api.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
 class RefreshRequest(BaseModel):
     refresh_token: str
 
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
 @router.post("/login")
 async def login(body: LoginRequest, response: Response):
+    # Timing-attack resistant user lookup
+    # Always check password even if user not found to prevent user enumeration
+    DUMMY_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7fVKgL.E2K"
+
     result = supabase.table("users").select("*").eq("email", body.username).execute()
     if not result.data:
         result = supabase.table("users").select("*").eq("name", body.username).execute()
-    if not result.data:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user = result.data[0]
-    if not verify_password(body.password, user.get("password_hash", "")):
+    user = result.data[0] if result.data else None
+    password_hash = user.get("password_hash", DUMMY_HASH) if user else DUMMY_HASH
+
+    # Always verify password to prevent timing attacks
+    password_valid = verify_password(body.password, password_hash)
+
+    if not user or not password_valid:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Get team to find org
@@ -86,13 +86,12 @@ async def logout(user: CurrentUser = Depends(get_current_user)):
 
 @router.patch("/password")
 async def change_password(body: ChangePasswordRequest, user: CurrentUser = Depends(get_current_user)):
+    # Password validation now handled by Pydantic model
     result = supabase.table("users").select("password_hash").eq("id", int(user.user_id)).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="User not found")
     if not verify_password(body.current_password, result.data[0]["password_hash"]):
         raise HTTPException(status_code=401, detail="Wrong current password")
-    if len(body.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password min 6 characters")
     new_hash = hash_password(body.new_password)
     supabase.table("users").update({"password_hash": new_hash}).eq("id", int(user.user_id)).execute()
     log_action("user.password_changed", "user", user.user_id, user_id=user.user_id)

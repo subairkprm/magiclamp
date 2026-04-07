@@ -51,7 +51,19 @@ app = FastAPI(
 )
 
 # ── MIDDLEWARE ────────────────────────────────
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Configure CORS based on environment
+allowed_origins = ["*"]  # Default to allow all for development
+if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
+    # In production, use specific origins
+    allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=True
+)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(AuditMiddleware)
 
