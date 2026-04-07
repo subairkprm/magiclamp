@@ -1,4 +1,5 @@
 """MagicLamp API v1 — Auth Routes"""
+from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel
 from supabase import create_client
@@ -13,11 +14,15 @@ log = get_logger("api.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
+# Import limiter from main
+from main import limiter
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
 @router.post("/login")
-async def login(body: LoginRequest, response: Response):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def login(request: Request, body: LoginRequest, response: Response) -> Dict[str, Any]:
     # Timing-attack resistant user lookup
     # Always check password even if user not found to prevent user enumeration
     DUMMY_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NU7fVKgL.E2K"
@@ -63,7 +68,8 @@ async def login(body: LoginRequest, response: Response):
     }
 
 @router.post("/refresh")
-async def refresh(body: RefreshRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def refresh(request: Request, body: RefreshRequest) -> Dict[str, str]:
     payload = decode_token(body.refresh_token)
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -76,16 +82,19 @@ async def refresh(body: RefreshRequest):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")
-async def me(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def me(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     return {"user_id": user.user_id, "role": user.role, "org_id": user.org_id, "via": user.via}
 
 @router.post("/logout")
-async def logout(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def logout(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, bool]:
     log_action("user.logout", "user", user.user_id, user_id=user.user_id)
     return {"ok": True}
 
 @router.patch("/password")
-async def change_password(body: ChangePasswordRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def change_password(request: Request, body: ChangePasswordRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, bool]:
     # Password validation now handled by Pydantic model
     result = supabase.table("users").select("password_hash").eq("id", int(user.user_id)).execute()
     if not result.data:
