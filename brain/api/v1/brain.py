@@ -1,7 +1,7 @@
 """MagicLamp API v1 — Brain Routes (memory, reasoning, training, scheduler)"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
-from typing import Any, Optional
+from typing import Any, Optional, Dict, List
 from supabase import create_client
 from core.config import settings
 from core.auth import get_current_user, require_admin, CurrentUser
@@ -14,10 +14,19 @@ from core.validation import (
 )
 import httpx, json, asyncio
 from datetime import datetime
+from functools import lru_cache
+from time import time
 
 log = get_logger("api.brain")
 router = APIRouter(prefix="/brain", tags=["brain"])
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+# Import limiter from main
+from main import limiter
+
+# Cache for fact loading with TTL
+_fact_cache: Dict[str, tuple[List[Dict], float]] = {}
+_FACT_CACHE_TTL = 300  # 5 minutes
 
 # ── HELPERS ───────────────────────────────────
 async def _llm(prompt: str, system: str = None, json_mode: bool = False) -> str:
@@ -44,9 +53,22 @@ async def _llm(prompt: str, system: str = None, json_mode: bool = False) -> str:
 def _org(user: CurrentUser) -> Optional[str]:
     return user.org_id
 
+def _get_cached_facts(cache_key: str = "global") -> List[Dict]:
+    """Load facts with simple time-based cache to avoid hitting DB on every request."""
+    now = time()
+    if cache_key in _fact_cache:
+        facts, timestamp = _fact_cache[cache_key]
+        if now - timestamp < _FACT_CACHE_TTL:
+            return facts
+    # Cache miss or expired - fetch from DB
+    facts = supabase.table("brain_facts").select("key,value").limit(20).execute().data
+    _fact_cache[cache_key] = (facts, now)
+    return facts
+
 # ── MEMORY ────────────────────────────────────
 @router.post("/memory/remember")
-async def remember(body: RememberRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def remember(request: Request, body: RememberRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     supabase.table("brain_facts").upsert({
         "org_id":     _org(user),
         "key":        body.key,
@@ -58,7 +80,8 @@ async def remember(body: RememberRequest, user: CurrentUser = Depends(get_curren
     return {"ok": True, "key": body.key}
 
 @router.get("/memory/recall/{key}")
-async def recall(key: str, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def recall(request: Request, key: str, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     # Sanitize key to prevent injection
     key = sanitize_string(key, max_length=100)
     result = supabase.table("brain_facts").select("*")\
@@ -72,12 +95,14 @@ async def recall(key: str, user: CurrentUser = Depends(get_current_user)):
     return {"key": key, "value": None, "found": False}
 
 @router.get("/memory/facts")
-async def all_facts(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def all_facts(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
     result = supabase.table("brain_facts").select("key,value,source,confidence").execute()
     return {r["key"]: r["value"] for r in result.data}
 
 @router.post("/memory/observe")
-async def observe(body: ObserveRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def observe(request: Request, body: ObserveRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, bool]:
     supabase.table("brain_events").insert({
         "org_id":     _org(user),
         "event_type": body.event_type,
@@ -89,8 +114,9 @@ async def observe(body: ObserveRequest, user: CurrentUser = Depends(get_current_
     return {"ok": True}
 
 @router.get("/memory/events")
-async def events(category: str = None, event_type: str = None, limit: int = 50,
-                 user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def events(request: Request, category: str = None, event_type: str = None, limit: int = 50,
+                 user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
     q = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(limit)
     if category:
         q = q.eq("category", category)
@@ -99,7 +125,8 @@ async def events(category: str = None, event_type: str = None, limit: int = 50,
     return q.execute().data
 
 @router.get("/memory/stats")
-async def memory_stats(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def memory_stats(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, int]:
     facts     = supabase.table("brain_facts").select("id", count="exact").execute()
     events    = supabase.table("brain_events").select("id", count="exact").execute()
     training  = supabase.table("brain_training_data").select("id", count="exact").execute()
@@ -113,7 +140,8 @@ async def memory_stats(user: CurrentUser = Depends(get_current_user)):
 
 # ── REASONING ─────────────────────────────────
 @router.post("/reason/lead")
-async def reason_lead(body: ReasonLeadRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def reason_lead(request: Request, body: ReasonLeadRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     lead = body.lead
     prompt = f"""Analyse this UAE banking lead and return JSON:
 {{"score":0-100,"priority":"low|medium|high|urgent","eligibility":"likely_eligible|borderline|likely_rejected",
@@ -137,10 +165,11 @@ Lead: {json.dumps(lead)}"""
     return result
 
 @router.post("/reason/ask")
-async def reason_ask(body: ReasonAskRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def reason_ask(request: Request, body: ReasonAskRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
     question = body.question
-    # Load relevant facts for context
-    facts = supabase.table("brain_facts").select("key,value").limit(20).execute().data
+    # Load relevant facts for context with caching
+    facts = _get_cached_facts()
     fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
     prompt = f"Answer using your knowledge and these facts:\n{fact_ctx}\n\nQuestion: {question}"
     answer = await _llm(prompt)
@@ -154,7 +183,8 @@ async def reason_ask(body: ReasonAskRequest, user: CurrentUser = Depends(get_cur
     return {"question": question, "answer": answer}
 
 @router.post("/reason/decide")
-async def reason_decide(body: ReasonDecideRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def reason_decide(request: Request, body: ReasonDecideRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     situation = body.situation
     options   = body.options or []
     opts_text = f"\nOptions: {', '.join(options)}" if options else ""
@@ -176,8 +206,9 @@ Situation: {situation}{opts_text}"""
     return result
 
 @router.get("/reason/self-analyse")
-async def self_analyse(user: CurrentUser = Depends(get_current_user)):
-    stats = (await memory_stats(user))
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def self_analyse(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
+    stats = (await memory_stats(request, user))
     decisions = supabase.table("brain_decisions").select("*").order("created_at", desc=True).limit(5).execute().data
     prompt = f"""Review brain state and return JSON:
 {{"knowledge_summary":"","gaps":[],"pending_actions":[],"health_score":0-100,"alerts":[]}}
@@ -198,13 +229,15 @@ Recent decisions: {json.dumps(decisions, default=str)[:500]}"""
 
 # ── TRAINING ──────────────────────────────────
 @router.get("/training/stats")
-async def training_stats(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def training_stats(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     result = supabase.table("brain_training_data").select("id", count="exact").execute()
     count = result.count or 0
     return {"total_training_samples": count, "ready_for_export": count >= 100}
 
 @router.post("/training/add")
-async def training_add(body: TrainingAddRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def training_add(request: Request, body: TrainingAddRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     supabase.table("brain_training_data").insert({
         "org_id":  _org(user),
         "input":   body.input_text,
@@ -217,7 +250,8 @@ async def training_add(body: TrainingAddRequest, user: CurrentUser = Depends(get
     return {"ok": True, "total": count}
 
 @router.post("/training/export")
-async def training_export(min_quality: float = 0.8, admin: CurrentUser = Depends(require_admin)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def training_export(request: Request, min_quality: float = 0.8, admin: CurrentUser = Depends(require_admin)) -> Dict[str, Any]:
     data = supabase.table("brain_training_data").select("*")\
         .gte("quality", min_quality).order("quality", desc=True).limit(10000).execute().data
     jsonl_lines = []
@@ -237,7 +271,8 @@ async def training_export(min_quality: float = 0.8, admin: CurrentUser = Depends
 
 # ── CHANGES ───────────────────────────────────
 @router.post("/changes/record")
-async def record_change(body: RecordChangeRequest, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def record_change(request: Request, body: RecordChangeRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     what = body.what
     text = f"CHANGE: {what} changed from '{body.from_val}' to '{body.to_val}'. Reason: {body.reason}"
     supabase.table("brain_events").insert({
@@ -257,18 +292,21 @@ async def record_change(body: RecordChangeRequest, user: CurrentUser = Depends(g
     return {"ok": True, "remembered": text[:100]}
 
 @router.get("/changes/history")
-async def change_history(limit: int = 50, user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def change_history(request: Request, limit: int = 50, user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
     return supabase.table("brain_events").select("*")\
         .eq("category", "changes").order("created_at", desc=True).limit(limit).execute().data
 
 # ── SCHEDULER ─────────────────────────────────
 @router.get("/scheduler/jobs")
-async def scheduler_jobs(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def scheduler_jobs(request: Request, user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
     from scheduler import auto_scheduler
     return auto_scheduler.get_jobs()
 
 @router.post("/scheduler/run/{job_id}")
-async def run_job(job_id: str, admin: CurrentUser = Depends(require_admin)):
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def run_job(request: Request, job_id: str, admin: CurrentUser = Depends(require_admin)) -> Dict[str, Any]:
     from scheduler import auto_scheduler
     job_map = {
         "crm_snapshot":        auto_scheduler.job_crm_snapshot,
