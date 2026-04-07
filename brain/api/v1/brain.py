@@ -29,7 +29,7 @@ _fact_cache: Dict[str, tuple[List[Dict], float]] = {}
 _FACT_CACHE_TTL = 300  # 5 minutes
 
 # ── HELPERS ───────────────────────────────────
-async def _llm(prompt: str, system: str = None, json_mode: bool = False) -> str:
+async def _llm(prompt: str, system: Optional[str] = None, json_mode: bool = False) -> str:
     async def _call():
         payload = {
             "model": settings.OLLAMA_MODEL,
@@ -115,7 +115,7 @@ async def observe(request: Request, body: ObserveRequest, user: CurrentUser = De
 
 @router.get("/memory/events")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def events(request: Request, category: str = None, event_type: str = None, limit: int = 50,
+async def events(request: Request, category: Optional[str] = None, event_type: Optional[str] = None, limit: int = 50,
                  user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
     q = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(limit)
     if category:
