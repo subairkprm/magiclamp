@@ -2,7 +2,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from pydantic import BaseModel
 from typing import Any, Optional, Dict, List
-from supabase import create_client
 from core.config import settings
 from core.auth import get_current_user, require_admin, CurrentUser
 from core.circuit import ollama_circuit
@@ -13,6 +12,8 @@ from core.validation import (
     ReasonAskRequest, ReasonDecideRequest, TrainingAddRequest,
     RecordChangeRequest, sanitize_string
 )
+from core.database import get_database_client, DatabaseClient
+from repositories import FactRepository
 import httpx, json, asyncio, uuid
 from datetime import datetime
 from functools import lru_cache
@@ -20,7 +21,6 @@ from time import time
 
 log = get_logger("api.brain")
 router = APIRouter(prefix="/brain", tags=["brain"])
-supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
 # Import limiter from main
 from main import limiter
@@ -31,6 +31,10 @@ _FACT_CACHE_TTL = 300  # 5 minutes
 
 # In-memory task store (upgrade to database/Redis for production)
 _task_store: Dict[str, Dict[str, Any]] = {}
+
+# Dependency to get FactRepository
+def get_fact_repository(db: DatabaseClient = Depends(get_database_client)) -> FactRepository:
+    return FactRepository(db)
 
 def _create_task(task_type: str, user_id: str) -> str:
     """Create a new background task and return task_id."""
@@ -83,91 +87,160 @@ async def _llm(prompt: str, system: Optional[str] = None, json_mode: bool = Fals
         return f"AI Engine unavailable: {e}"
 
 def _org(user: CurrentUser) -> Optional[str]:
+    """Extract tenant_id from user (support both org_id and tenant_id)."""
     return user.org_id
 
-def _get_cached_facts(cache_key: str = "global") -> List[Dict]:
+def _get_cached_facts(tenant_id: str, fact_repo: FactRepository) -> List[Dict]:
     """Load facts with simple time-based cache to avoid hitting DB on every request."""
+    cache_key = f"facts_{tenant_id}"
     now = time()
     if cache_key in _fact_cache:
         facts, timestamp = _fact_cache[cache_key]
         if now - timestamp < _FACT_CACHE_TTL:
             return facts
-    # Cache miss or expired - fetch from DB
-    facts = supabase.table("brain_facts").select("key,value").limit(20).execute().data
+    # Cache miss or expired - fetch from DB using repository
+    fact_models = fact_repo.get_recent_facts(tenant_id=tenant_id, limit=20)
+    facts = [{"key": f.key, "value": f.value} for f in fact_models]
     _fact_cache[cache_key] = (facts, now)
     return facts
 
 # ── MEMORY ────────────────────────────────────
 @router.post("/memory/remember")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def remember(request: Request, body: RememberRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    supabase.table("brain_facts").upsert({
-        "org_id":     _org(user),
-        "key":        body.key,
-        "value":      json.dumps(body.value) if not isinstance(body.value, str) else body.value,
-        "source":     body.source,
-        "confidence": body.confidence,
-        "updated_at": datetime.utcnow().isoformat(),
-    }, on_conflict="org_id,key").execute()
+async def remember(
+    request: Request,
+    body: RememberRequest,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository)
+) -> Dict[str, Any]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    # Save fact using repository
+    fact_repo.save_fact(
+        key=body.key,
+        value=json.dumps(body.value) if not isinstance(body.value, str) else body.value,
+        tenant_id=tenant_id,
+        source=body.source,
+        confidence=body.confidence
+    )
     return {"ok": True, "key": body.key}
 
 @router.get("/memory/recall/{key}")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def recall(request: Request, key: str, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
+async def recall(
+    request: Request,
+    key: str,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository)
+) -> Dict[str, Any]:
     # Sanitize key to prevent injection
     key = sanitize_string(key, max_length=100)
-    result = supabase.table("brain_facts").select("*")\
-        .eq("key", key).execute()
-    if result.data:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    fact = fact_repo.get_by_key(key=key, tenant_id=tenant_id)
+    if fact:
         try:
-            val = json.loads(result.data[0]["value"])
+            val = json.loads(fact.value) if isinstance(fact.value, str) else fact.value
         except:
-            val = result.data[0]["value"]
+            val = fact.value
         return {"key": key, "value": val, "found": True}
     return {"key": key, "value": None, "found": False}
 
 @router.get("/memory/facts")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def all_facts(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
-    result = supabase.table("brain_facts").select("key,value,source,confidence").execute()
-    return {r["key"]: r["value"] for r in result.data}
+async def all_facts(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository)
+) -> Dict[str, str]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    facts = fact_repo.get_all(tenant_id=tenant_id)
+    return {f.key: str(f.value) for f in facts}
 
 @router.post("/memory/observe")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def observe(request: Request, body: ObserveRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, bool]:
-    supabase.table("brain_events").insert({
-        "org_id":     _org(user),
-        "event_type": body.event_type,
-        "category":   body.category,
-        "data":       {"text": body.text, **(body.metadata or {})},
-        "summary":    body.text[:200],
-        "importance": body.importance,
-    }).execute()
+async def observe(
+    request: Request,
+    body: ObserveRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, bool]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    db.insert(
+        table="brain_events",
+        data={
+            "event_type": body.event_type,
+            "category":   body.category,
+            "data":       {"text": body.text, **(body.metadata or {})},
+            "summary":    body.text[:200],
+            "importance": body.importance,
+        },
+        tenant_id=tenant_id
+    )
     return {"ok": True}
 
 @router.get("/memory/events")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def events(request: Request, category: Optional[str] = None, event_type: Optional[str] = None, limit: int = 50,
-                 user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    q = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(limit)
+async def events(
+    request: Request,
+    category: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 50,
+    user: CurrentUser = Depends(get_current_user),
+    db: DatabaseClient = Depends(get_database_client)
+) -> List[Dict[str, Any]]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    filters = {}
     if category:
-        q = q.eq("category", category)
+        filters["category"] = category
     if event_type:
-        q = q.eq("event_type", event_type)
-    return q.execute().data
+        filters["event_type"] = event_type
+
+    result = db.select(
+        table="brain_events",
+        columns="*",
+        tenant_id=tenant_id,
+        filters=filters if filters else None,
+        order_by="created_at.desc",
+        limit=limit
+    )
+    return result.data
 
 @router.get("/memory/stats")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def memory_stats(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, int]:
-    facts     = supabase.table("brain_facts").select("id", count="exact").execute()
-    events    = supabase.table("brain_events").select("id", count="exact").execute()
-    training  = supabase.table("brain_training_data").select("id", count="exact").execute()
-    decisions = supabase.table("brain_decisions").select("id", count="exact").execute()
+async def memory_stats(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, int]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    facts_count = fact_repo.count(tenant_id=tenant_id)
+    events_count = db.count(table="brain_events", tenant_id=tenant_id)
+    training_count = db.count(table="brain_training_data", tenant_id=tenant_id)
+    decisions_count = db.count(table="brain_decisions", tenant_id=tenant_id)
+
     return {
-        "facts":            facts.count or 0,
-        "events":           events.count or 0,
-        "training_samples": training.count or 0,
-        "decisions":        decisions.count or 0,
+        "facts":            facts_count,
+        "events":           events_count,
+        "training_samples": training_count,
+        "decisions":        decisions_count,
     }
 
 # ── REASONING ─────────────────────────────────
@@ -186,14 +259,19 @@ Lead: {json.dumps(lead)}"""
         except:
             result = {"score": 50, "priority": "medium", "reasoning": result_str[:200]}
 
-        # Auto-store as training data
-        supabase.table("brain_training_data").insert({
-            "org_id": org_id,
-            "input":  f"Analyse lead: {json.dumps(lead)[:300]}",
-            "output": json.dumps(result)[:500],
-            "source": "lead_analysis",
-            "quality": 1.5,
-        }).execute()
+        # Auto-store as training data using DatabaseClient
+        if org_id:
+            db = get_database_client()
+            db.insert(
+                table="brain_training_data",
+                data={
+                    "input":  f"Analyse lead: {json.dumps(lead)[:300]}",
+                    "output": json.dumps(result)[:500],
+                    "source": "lead_analysis",
+                    "quality": 1.5,
+                },
+                tenant_id=org_id
+            )
 
         _update_task_success(task_id, result)
     except Exception as e:
@@ -203,18 +281,31 @@ Lead: {json.dumps(lead)}"""
 async def _process_reason_ask(task_id: str, question: str, org_id: Optional[str]):
     """Background task to process question reasoning."""
     try:
-        facts = _get_cached_facts()
+        # Get facts using repository
+        if org_id:
+            db = get_database_client()
+            fact_repo = FactRepository(db)
+            facts = _get_cached_facts(tenant_id=org_id, fact_repo=fact_repo)
+        else:
+            facts = []
+
         fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
         prompt = f"Answer using your knowledge and these facts:\n{fact_ctx}\n\nQuestion: {question}"
         answer = await _llm(prompt)
 
-        supabase.table("brain_training_data").insert({
-            "org_id": org_id,
-            "input":  question,
-            "output": answer[:500],
-            "source": "api_ask",
-            "quality": 1.0,
-        }).execute()
+        # Store training data using DatabaseClient
+        if org_id:
+            db = get_database_client()
+            db.insert(
+                table="brain_training_data",
+                data={
+                    "input":  question,
+                    "output": answer[:500],
+                    "source": "api_ask",
+                    "quality": 1.0,
+                },
+                tenant_id=org_id
+            )
 
         result = {"question": question, "answer": answer}
         _update_task_success(task_id, result)
@@ -235,13 +326,19 @@ Situation: {situation}{opts_text}"""
         except:
             result = {"decision": "manual_review", "reasoning": result_str[:200]}
 
-        supabase.table("brain_decisions").insert({
-            "org_id":    org_id,
-            "trigger":   situation[:300],
-            "reasoning": result.get("reasoning", "")[:500],
-            "action":    result.get("decision", "")[:200],
-            "confidence": result.get("confidence", 0.5),
-        }).execute()
+        # Store decision using DatabaseClient
+        if org_id:
+            db = get_database_client()
+            db.insert(
+                table="brain_decisions",
+                data={
+                    "trigger":   situation[:300],
+                    "reasoning": result.get("reasoning", "")[:500],
+                    "action":    result.get("decision", "")[:200],
+                    "confidence": result.get("confidence", 0.5),
+                },
+                tenant_id=org_id
+            )
 
         _update_task_success(task_id, result)
     except Exception as e:
@@ -322,9 +419,27 @@ async def get_task_status(
 
 @router.get("/reason/self-analyse")
 @limiter.limit(settings.RATE_LIMIT_AI)
-async def self_analyse(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    stats = (await memory_stats(request, user))
-    decisions = supabase.table("brain_decisions").select("*").order("created_at", desc=True).limit(5).execute().data
+async def self_analyse(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, Any]:
+    stats = (await memory_stats(request, user, fact_repo, db))
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    # Get recent decisions using DatabaseClient
+    decisions_result = db.select(
+        table="brain_decisions",
+        columns="*",
+        tenant_id=tenant_id,
+        order_by="created_at.desc",
+        limit=5
+    )
+    decisions = decisions_result.data if decisions_result.success else []
+
     prompt = f"""Review brain state and return JSON:
 {{"knowledge_summary":"","gaps":[],"pending_actions":[],"health_score":0-100,"alerts":[]}}
 Stats: {json.dumps(stats)}
@@ -334,41 +449,83 @@ Recent decisions: {json.dumps(decisions, default=str)[:500]}"""
         result = json.loads(result_str)
     except:
         result = {"health_score": 75, "knowledge_summary": "Brain operational"}
-    supabase.table("brain_analyses").insert({
-        "org_id":  _org(user),
-        "subject": "self_analysis",
-        "analysis": json.dumps(result),
-        "metrics": stats,
-    }).execute()
+
+    # Store analysis using DatabaseClient
+    db.insert(
+        table="brain_analyses",
+        data={
+            "subject": "self_analysis",
+            "analysis": json.dumps(result),
+            "metrics": stats,
+        },
+        tenant_id=tenant_id
+    )
     return result
 
 # ── TRAINING ──────────────────────────────────
 @router.get("/training/stats")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def training_stats(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    result = supabase.table("brain_training_data").select("id", count="exact").execute()
-    count = result.count or 0
+async def training_stats(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, Any]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    count = db.count(table="brain_training_data", tenant_id=tenant_id)
     return {"total_training_samples": count, "ready_for_export": count >= 100}
 
 @router.post("/training/add")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def training_add(request: Request, body: TrainingAddRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
-    supabase.table("brain_training_data").insert({
-        "org_id":  _org(user),
-        "input":   body.input_text,
-        "output":  body.output_text,
-        "source":  body.source,
-        "quality": body.quality,
-        "verified": body.source == "manual",
-    }).execute()
-    count = supabase.table("brain_training_data").select("id", count="exact").execute().count or 0
+async def training_add(
+    request: Request,
+    body: TrainingAddRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, Any]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    db.insert(
+        table="brain_training_data",
+        data={
+            "input":   body.input_text,
+            "output":  body.output_text,
+            "source":  body.source,
+            "quality": body.quality,
+            "verified": body.source == "manual",
+        },
+        tenant_id=tenant_id
+    )
+    count = db.count(table="brain_training_data", tenant_id=tenant_id)
     return {"ok": True, "total": count}
 
 @router.post("/training/export")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def training_export(request: Request, min_quality: float = 0.8, admin: CurrentUser = Depends(require_admin)) -> Dict[str, Any]:
-    data = supabase.table("brain_training_data").select("*")\
-        .gte("quality", min_quality).order("quality", desc=True).limit(10000).execute().data
+async def training_export(
+    request: Request,
+    min_quality: float = 0.8,
+    admin: CurrentUser = Depends(require_admin),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, Any]:
+    tenant_id = _org(admin)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Admin has no tenant/org association")
+
+    # Note: gte (greater than or equal) filtering not directly supported by DatabaseClient
+    # Using select and filtering in Python for now
+    result = db.select(
+        table="brain_training_data",
+        columns="*",
+        tenant_id=tenant_id,
+        order_by="quality.desc",
+        limit=10000
+    )
+    data = [d for d in result.data if d.get("quality", 0) >= min_quality]
+
     jsonl_lines = []
     for d in data:
         ctx = d.get("context") or {}
@@ -387,30 +544,63 @@ async def training_export(request: Request, min_quality: float = 0.8, admin: Cur
 # ── CHANGES ───────────────────────────────────
 @router.post("/changes/record")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def record_change(request: Request, body: RecordChangeRequest, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
+async def record_change(
+    request: Request,
+    body: RecordChangeRequest,
+    user: CurrentUser = Depends(get_current_user),
+    fact_repo: FactRepository = Depends(get_fact_repository),
+    db: DatabaseClient = Depends(get_database_client)
+) -> Dict[str, Any]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
     what = body.what
     text = f"CHANGE: {what} changed from '{body.from_val}' to '{body.to_val}'. Reason: {body.reason}"
-    supabase.table("brain_events").insert({
-        "org_id":     _org(user),
-        "event_type": "change_recorded",
-        "category":   "changes",
-        "data":       body.dict(),
-        "summary":    text[:200],
-        "importance": 3,
-    }).execute()
-    supabase.table("brain_facts").upsert({
-        "org_id": _org(user),
-        "key":    f"change.{what}.latest",
-        "value":  json.dumps({"from": body.from_val, "to": body.to_val, "reason": body.reason, "ts": datetime.utcnow().isoformat()}),
-        "source": "change_record",
-    }, on_conflict="org_id,key").execute()
+
+    # Record event using DatabaseClient
+    db.insert(
+        table="brain_events",
+        data={
+            "event_type": "change_recorded",
+            "category":   "changes",
+            "data":       body.dict(),
+            "summary":    text[:200],
+            "importance": 3,
+        },
+        tenant_id=tenant_id
+    )
+
+    # Store fact using FactRepository
+    fact_repo.save_fact(
+        key=f"change.{what}.latest",
+        value=json.dumps({"from": body.from_val, "to": body.to_val, "reason": body.reason, "ts": datetime.utcnow().isoformat()}),
+        tenant_id=tenant_id,
+        source="change_record"
+    )
     return {"ok": True, "remembered": text[:100]}
 
 @router.get("/changes/history")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-async def change_history(request: Request, limit: int = 50, user: CurrentUser = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    return supabase.table("brain_events").select("*")\
-        .eq("category", "changes").order("created_at", desc=True).limit(limit).execute().data
+async def change_history(
+    request: Request,
+    limit: int = 50,
+    user: CurrentUser = Depends(get_current_user),
+    db: DatabaseClient = Depends(get_database_client)
+) -> List[Dict[str, Any]]:
+    tenant_id = _org(user)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant/org association")
+
+    result = db.select(
+        table="brain_events",
+        columns="*",
+        tenant_id=tenant_id,
+        filters={"category": "changes"},
+        order_by="created_at.desc",
+        limit=limit
+    )
+    return result.data
 
 # ── SCHEDULER ─────────────────────────────────
 @router.get("/scheduler/jobs")
