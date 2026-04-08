@@ -11,7 +11,14 @@ from core.config import settings
 from core.logger import get_logger
 
 log = get_logger("audit")
-supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+_supabase_client = None
+
+def _get_supabase():
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    return _supabase_client
 
 SKIP_PATHS = {"/health", "/docs", "/openapi.json", "/api/v1/auth/refresh"}
 AUDIT_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -31,7 +38,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     user_id = getattr(request.state.user, "user_id", "anonymous")
                     org_id  = getattr(request.state.user, "org_id", None)
 
-                supabase.table("audit_log").insert({
+                _get_supabase().table("audit_log").insert({
                     "org_id":      org_id,
                     "user_id":     user_id,
                     "action":      f"{request.method} {request.url.path}",
@@ -57,7 +64,7 @@ def log_action(
 ):
     """Manually log an audit entry from any code path."""
     try:
-        supabase.table("audit_log").insert({
+        _get_supabase().table("audit_log").insert({
             "org_id":      org_id,
             "user_id":     user_id,
             "action":      action,

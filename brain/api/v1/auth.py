@@ -16,7 +16,7 @@ log = get_logger("api.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Import limiter from main
-from main import limiter
+from core.limiter import limiter
 
 class RefreshRequest(BaseModel):
     refresh_token: str

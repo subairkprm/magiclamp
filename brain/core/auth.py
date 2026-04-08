@@ -16,7 +16,13 @@ from core.logger import get_logger
 
 log = get_logger("auth")
 
-supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+_supabase_client: Optional[Client] = None
+
+def _get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    return _supabase_client
 
 bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -63,7 +69,7 @@ def generate_api_key(org_id: str, name: str, scopes: list[str]) -> tuple[str, st
     plain = "ml_" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plain.encode()).hexdigest()
     prefix = plain[:10]
-    supabase.table("api_keys").insert({
+    _get_supabase().table("api_keys").insert({
         "org_id": org_id,
         "name": name,
         "key_hash": key_hash,
@@ -75,12 +81,11 @@ def generate_api_key(org_id: str, name: str, scopes: list[str]) -> tuple[str, st
 
 def verify_api_key(plain_key: str) -> Optional[dict]:
     key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
-    result = supabase.table("api_keys").select("*")\
+    result = _get_supabase().table("api_keys").select("*")\
         .eq("key_hash", key_hash).eq("is_active", True).execute()
     if result.data:
         key = result.data[0]
-        # Update last_used
-        supabase.table("api_keys").update({"last_used_at": datetime.utcnow().isoformat()})\
+        _get_supabase().table("api_keys").update({"last_used_at": datetime.utcnow().isoformat()})\
             .eq("id", key["id"]).execute()
         return key
     return None

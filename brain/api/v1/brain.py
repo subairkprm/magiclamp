@@ -23,7 +23,7 @@ log = get_logger("api.brain")
 router = APIRouter(prefix="/brain", tags=["brain"])
 
 # Import limiter from main
-from main import limiter
+from core.limiter import limiter
 
 # Cache for fact loading with TTL
 _fact_cache: Dict[str, tuple[List[Dict], float]] = {}
