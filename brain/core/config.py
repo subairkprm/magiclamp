@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # ── CORS ─────────────────────────────────
     CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
 
+    # ── Redis ────────────────────────────────
+    REDIS_URL:           Optional[str] = Field(default=None, alias="REDIS_URL")
+
+    # ── OpenAI ───────────────────────────────
+    OPENAI_API_KEY:      Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
