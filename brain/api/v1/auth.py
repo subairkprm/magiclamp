@@ -1,10 +1,18 @@
 """MagicLamp API v1 — Auth Routes"""
+
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel
 from core.config import settings
-from core.auth import (hash_password, verify_password, create_access_token,
-                       create_refresh_token, decode_token, get_current_user, CurrentUser)
+from core.auth import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_current_user,
+    CurrentUser,
+)
 from core.audit import log_action
 from core.logger import get_logger
 from core.validation import LoginRequest, ChangePasswordRequest
@@ -18,12 +26,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Import limiter from main
 from main import limiter
 
+
 class RefreshRequest(BaseModel):
     refresh_token: str
+
 
 # Dependency to get UserRepository
 def get_user_repository(db: DatabaseClient = Depends(get_database_client)) -> UserRepository:
     return UserRepository(db)
+
 
 @router.post("/login")
 @limiter.limit(settings.RATE_LIMIT_AUTH)
@@ -32,7 +43,7 @@ async def login(
     body: LoginRequest,
     response: Response,
     user_repo: UserRepository = Depends(get_user_repository),
-    db: DatabaseClient = Depends(get_database_client)
+    db: DatabaseClient = Depends(get_database_client),
 ) -> Dict[str, Any]:
     # Timing-attack resistant user lookup
     # Always check password even if user not found to prevent user enumeration
@@ -64,35 +75,36 @@ async def login(
         # Legacy: Get team to find org
         team_result = db.select(table="team_members", columns="team_id", filters={"user_id": str(user["id"])}, limit=1)
         if team_result.success and team_result.data:
-            team = db.select(table="teams", columns="org_id,tenant_id", filters={"id": team_result.data[0]["team_id"]}, limit=1)
+            team = db.select(
+                table="teams", columns="org_id,tenant_id", filters={"id": team_result.data[0]["team_id"]}, limit=1
+            )
             if team.success and team.data:
                 tenant_id = team.data[0].get("tenant_id") or team.data[0].get("org_id")
 
-    access_token  = create_access_token(str(user["id"]), user.get("role", "user"), tenant_id)
+    access_token = create_access_token(str(user["id"]), user.get("role", "user"), tenant_id)
     refresh_token = create_refresh_token(str(user["id"]))
 
     log_action("user.login", "user", str(user["id"]), user_id=str(user["id"]), org_id=tenant_id)
 
     return {
-        "access_token":  access_token,
+        "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type":    "bearer",
-        "expires_in":    settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
-            "id":       user["id"],
+            "id": user["id"],
             "username": user.get("name") or user.get("email"),
-            "email":    user.get("email"),
-            "role":     user.get("role", "user"),
-            "org_id":   tenant_id,
-        }
+            "email": user.get("email"),
+            "role": user.get("role", "user"),
+            "org_id": tenant_id,
+        },
     }
+
 
 @router.post("/refresh")
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 async def refresh(
-    request: Request,
-    body: RefreshRequest,
-    db: DatabaseClient = Depends(get_database_client)
+    request: Request, body: RefreshRequest, db: DatabaseClient = Depends(get_database_client)
 ) -> Dict[str, str]:
     payload = decode_token(body.refresh_token)
     if payload.get("type") != "refresh":
@@ -109,10 +121,12 @@ async def refresh(
     access_token = create_access_token(user_id, user.get("role", "user"), tenant_id)
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 @router.get("/me")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def me(request: Request, user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
     return {"user_id": user.user_id, "role": user.role, "org_id": user.org_id, "via": user.via}
+
 
 @router.post("/logout")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
@@ -120,13 +134,14 @@ async def logout(request: Request, user: CurrentUser = Depends(get_current_user)
     log_action("user.logout", "user", user.user_id, user_id=user.user_id)
     return {"ok": True}
 
+
 @router.patch("/password")
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 async def change_password(
     request: Request,
     body: ChangePasswordRequest,
     user: CurrentUser = Depends(get_current_user),
-    user_repo: UserRepository = Depends(get_user_repository)
+    user_repo: UserRepository = Depends(get_user_repository),
 ) -> Dict[str, bool]:
     # Password validation now handled by Pydantic model
     if not user.org_id:
@@ -144,10 +159,7 @@ async def change_password(
         db = get_database_client()
         new_hash = hash_password(body.new_password)
         result = db.update(
-            table="users",
-            data={"password_hash": new_hash},
-            tenant_id=user.org_id,
-            filters={"id": int(user.user_id)}
+            table="users", data={"password_hash": new_hash}, tenant_id=user.org_id, filters={"id": int(user.user_id)}
         )
 
         if not result.success:
