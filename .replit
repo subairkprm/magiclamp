@@ -1,0 +1,13 @@
+modules = ["python-3.12", "bash"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["cargo", "glibcLocales", "libiconv", "libxcrypt", "rustc"]
+
+[userenv]
+
+[userenv.shared]
+ENVIRONMENT = "staging"
+CORS_ALLOWED_ORIGINS = "*"
