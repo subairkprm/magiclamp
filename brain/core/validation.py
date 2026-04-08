@@ -2,8 +2,8 @@
 MagicLamp — Input Validation Models
 Comprehensive Pydantic models for API input validation and security.
 """
-from pydantic import BaseModel, Field, EmailStr, validator, constr
-from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field, EmailStr, field_validator
+from typing import Optional, List, Dict, Any, Literal, Annotated
 import re
 
 
@@ -51,10 +51,11 @@ class PasswordValidator:
 # ── AUTH MODELS ──────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    username: constr(min_length=3, max_length=255, strip_whitespace=True)
+    username: Annotated[str, Field(min_length=3, max_length=255, strip_whitespace=True)]
     password: str = Field(..., min_length=6)
 
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def username_valid(cls, v):
         # Prevent SQL injection attempts
         if any(char in v for char in ["'", '"', ';', '--', '/*', '*/']):
@@ -66,7 +67,8 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=12)
 
-    @validator('new_password')
+    @field_validator('new_password')
+    @classmethod
     def password_strength(cls, v):
         is_valid, error = PasswordValidator.validate(v)
         if not is_valid:
@@ -75,20 +77,22 @@ class ChangePasswordRequest(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    username: constr(min_length=3, max_length=50, strip_whitespace=True)
+    username: Annotated[str, Field(min_length=3, max_length=50, strip_whitespace=True)]
     email: EmailStr
     password: str = Field(..., min_length=12)
     role: Literal["user", "admin", "agent"] = "user"
     team_id: Optional[int] = None
 
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def username_valid(cls, v):
         # Only allow alphanumeric, underscore, dash
         if not re.match(r'^[a-zA-Z0-9_-]+$', v):
             raise ValueError("Username can only contain letters, numbers, underscore, and dash")
         return v.lower()
 
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def password_strength(cls, v):
         is_valid, error = PasswordValidator.validate(v)
         if not is_valid:
@@ -99,12 +103,13 @@ class CreateUserRequest(BaseModel):
 # ── BRAIN API MODELS ─────────────────────────────────────────
 
 class RememberRequest(BaseModel):
-    key: constr(regex=r'^[a-z0-9._-]+$', min_length=1, max_length=100)
+    key: Annotated[str, Field(pattern=r'^[a-z0-9._-]+$', min_length=1, max_length=100)]
     value: Any
     source: Optional[str] = Field(default="api", max_length=50)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
-    @validator('key')
+    @field_validator('key')
+    @classmethod
     def key_no_injection(cls, v):
         # Prevent key injection attacks
         forbidden = ['__', 'admin', 'system', 'root', 'config']
@@ -114,13 +119,14 @@ class RememberRequest(BaseModel):
 
 
 class ObserveRequest(BaseModel):
-    text: constr(min_length=1, max_length=5000, strip_whitespace=True)
+    text: Annotated[str, Field(min_length=1, max_length=5000, strip_whitespace=True)]
     event_type: Optional[str] = Field(default="observation", max_length=50)
     category: Optional[str] = Field(default="general", max_length=50)
     metadata: Optional[Dict[str, Any]] = None
     importance: int = Field(default=1, ge=1, le=5)
 
-    @validator('event_type', 'category')
+    @field_validator('event_type', 'category')
+    @classmethod
     def no_special_chars(cls, v):
         if v and not re.match(r'^[a-z0-9_-]+$', v):
             raise ValueError("Only lowercase letters, numbers, underscore, and dash allowed")
@@ -130,7 +136,8 @@ class ObserveRequest(BaseModel):
 class ReasonLeadRequest(BaseModel):
     lead: Dict[str, Any] = Field(..., description="Lead data for analysis")
 
-    @validator('lead')
+    @field_validator('lead')
+    @classmethod
     def validate_lead(cls, v):
         if not isinstance(v, dict):
             raise ValueError("Lead must be a dictionary")
@@ -140,9 +147,10 @@ class ReasonLeadRequest(BaseModel):
 
 
 class ReasonAskRequest(BaseModel):
-    question: constr(min_length=5, max_length=1000, strip_whitespace=True)
+    question: Annotated[str, Field(min_length=5, max_length=1000, strip_whitespace=True)]
 
-    @validator('question')
+    @field_validator('question')
+    @classmethod
     def sanitize_question(cls, v):
         # Remove potential injection attempts
         if any(pattern in v.lower() for pattern in ['<script', 'javascript:', 'onerror=']):
@@ -151,10 +159,11 @@ class ReasonAskRequest(BaseModel):
 
 
 class ReasonDecideRequest(BaseModel):
-    situation: constr(min_length=5, max_length=2000, strip_whitespace=True)
-    options: Optional[List[str]] = Field(default=None, max_items=20)
+    situation: Annotated[str, Field(min_length=5, max_length=2000, strip_whitespace=True)]
+    options: Optional[List[str]] = Field(default=None, max_length=20)
 
-    @validator('options')
+    @field_validator('options')
+    @classmethod
     def validate_options(cls, v):
         if v:
             for option in v:
@@ -164,14 +173,14 @@ class ReasonDecideRequest(BaseModel):
 
 
 class TrainingAddRequest(BaseModel):
-    input_text: constr(min_length=1, max_length=5000)
-    output_text: constr(min_length=1, max_length=5000)
+    input_text: Annotated[str, Field(min_length=1, max_length=5000)]
+    output_text: Annotated[str, Field(min_length=1, max_length=5000)]
     source: Optional[str] = Field(default="manual", max_length=50)
     quality: float = Field(default=1.0, ge=0.0, le=2.0)
 
 
 class RecordChangeRequest(BaseModel):
-    what: constr(min_length=1, max_length=100, strip_whitespace=True)
+    what: Annotated[str, Field(min_length=1, max_length=100, strip_whitespace=True)]
     from_val: Optional[str] = Field(default="", max_length=500)
     to_val: Optional[str] = Field(default="", max_length=500)
     reason: Optional[str] = Field(default="", max_length=500)
@@ -180,11 +189,12 @@ class RecordChangeRequest(BaseModel):
 # ── ADMIN API MODELS ─────────────────────────────────────────
 
 class CreateOrgRequest(BaseModel):
-    name: constr(min_length=2, max_length=100, strip_whitespace=True)
-    slug: constr(regex=r'^[a-z0-9-]+$', min_length=2, max_length=50)
+    name: Annotated[str, Field(min_length=2, max_length=100, strip_whitespace=True)]
+    slug: Annotated[str, Field(pattern=r'^[a-z0-9-]+$', min_length=2, max_length=50)]
     plan: Literal["free", "starter", "pro", "enterprise"] = "free"
 
-    @validator('slug')
+    @field_validator('slug')
+    @classmethod
     def slug_valid(cls, v):
         if v.startswith('-') or v.endswith('-'):
             raise ValueError("Slug cannot start or end with dash")
@@ -192,16 +202,17 @@ class CreateOrgRequest(BaseModel):
 
 
 class UpdateOrgRequest(BaseModel):
-    name: Optional[constr(min_length=2, max_length=100)] = None
+    name: Optional[Annotated[str, Field(min_length=2, max_length=100)]] = None
     plan: Optional[Literal["free", "starter", "pro", "enterprise"]] = None
     status: Optional[Literal["active", "suspended", "deleted"]] = None
 
 
 class CreateAPIKeyRequest(BaseModel):
-    name: constr(min_length=3, max_length=100, strip_whitespace=True)
-    scopes: List[str] = Field(default=["read"], max_items=20)
+    name: Annotated[str, Field(min_length=3, max_length=100, strip_whitespace=True)]
+    scopes: List[str] = Field(default=["read"], max_length=20)
 
-    @validator('scopes')
+    @field_validator('scopes')
+    @classmethod
     def validate_scopes(cls, v):
         allowed_scopes = {'read', 'write', 'admin', 'leads', 'memory', 'training'}
         for scope in v:
@@ -211,11 +222,12 @@ class CreateAPIKeyRequest(BaseModel):
 
 
 class CreateWebhookRequest(BaseModel):
-    name: constr(min_length=3, max_length=100)
-    url: constr(regex=r'^https?://.+', max_length=500)
-    events: List[str] = Field(default=[], max_items=50)
+    name: Annotated[str, Field(min_length=3, max_length=100)]
+    url: Annotated[str, Field(pattern=r'^https?://.+', max_length=500)]
+    events: List[str] = Field(default=[], max_length=50)
 
-    @validator('url')
+    @field_validator('url')
+    @classmethod
     def url_secure(cls, v):
         # Enforce HTTPS in production
         if not v.startswith('https://'):
@@ -227,7 +239,8 @@ class CreateWebhookRequest(BaseModel):
             raise ValueError("Webhook URL cannot point to internal network")
         return v
 
-    @validator('events')
+    @field_validator('events')
+    @classmethod
     def validate_events(cls, v):
         allowed_events = {
             'lead.created', 'lead.updated', 'user.login', 'decision.made',
@@ -241,9 +254,10 @@ class CreateWebhookRequest(BaseModel):
 
 class AuditLogQuery(BaseModel):
     limit: int = Field(default=50, ge=1, le=1000)
-    action: Optional[constr(max_length=100)] = None
+    action: Optional[Annotated[str, Field(max_length=100)]] = None
 
-    @validator('action')
+    @field_validator('action')
+    @classmethod
     def sanitize_action(cls, v):
         if v:
             # Prevent SQL injection
@@ -254,7 +268,8 @@ class AuditLogQuery(BaseModel):
 class ResetPasswordRequest(BaseModel):
     password: str = Field(..., min_length=12)
 
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def password_strength(cls, v):
         is_valid, error = PasswordValidator.validate(v)
         if not is_valid:

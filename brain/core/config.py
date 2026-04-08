@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     ENVIRONMENT:     str = Field(default="production", alias="ENV")
 
     # ── Supabase ────────────────────────────
-    SUPABASE_URL:    str = Field(..., alias="SUPABASE_URL")
-    SUPABASE_KEY:    str = Field(..., alias="SUPABASE_SERVICE_KEY")
+    SUPABASE_URL:    str = Field(default="", alias="SUPABASE_URL")
+    SUPABASE_KEY:    str = Field(default="", alias="SUPABASE_SERVICE_KEY")
 
     # ── Ollama ──────────────────────────────
     OLLAMA_URL:      str = Field(default="http://ollama:11434")
@@ -23,11 +23,11 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT:  int = Field(default=120)
 
     # ── Auth ────────────────────────────────
-    JWT_SECRET:      str = Field(..., alias="JWT_SECRET")
+    JWT_SECRET:      str = Field(default="", alias="JWT_SECRET")
     JWT_ALGORITHM:   str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS:   int = 30
-    BRAIN_API_KEY:   str = Field(..., alias="BRAIN_SECRET")
+    BRAIN_API_KEY:   str = Field(default="", alias="BRAIN_SECRET")
 
     # ── Telegram ────────────────────────────
     TELEGRAM_TOKEN:  Optional[str] = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
