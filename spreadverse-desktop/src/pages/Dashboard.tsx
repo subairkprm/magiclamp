@@ -12,19 +12,22 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      {/* Sidebar - Glassmorphism Style */}
       <aside
         className={`${
           sidebarOpen ? 'w-64' : 'w-20'
-        } bg-primary-900 text-white transition-all duration-300 flex flex-col`}
+        } bg-white/5 backdrop-blur-xl border-r border-white/10 text-white transition-all duration-300 flex flex-col shadow-2xl`}
+        style={{
+          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+        }}
       >
         {/* Sidebar Header */}
-        <div className="p-4 border-b border-primary-800">
+        <div className="p-4 border-b border-white/10 bg-gradient-to-r from-white/5 to-transparent">
           <div className="flex items-center justify-between">
             {sidebarOpen && (
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/50">
                   <svg
                     className="w-5 h-5"
                     fill="none"
@@ -39,12 +42,12 @@ const Dashboard: React.FC = () => {
                     />
                   </svg>
                 </div>
-                <span className="font-bold text-lg">SpreadVerse</span>
+                <span className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">SpreadVerse</span>
               </div>
             )}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-primary-800 rounded-lg transition-colors"
+              className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 hover:scale-110"
             >
               <svg
                 className="w-5 h-5"
@@ -120,10 +123,10 @@ const Dashboard: React.FC = () => {
         </nav>
 
         {/* Logout Button */}
-        <div className="p-4 border-t border-primary-800">
+        <div className="p-4 border-t border-white/10 bg-gradient-to-r from-white/5 to-transparent">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 backdrop-blur-sm border border-red-500/30 rounded-lg transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-red-500/20"
           >
             <svg
               className="w-5 h-5"
@@ -145,13 +148,13 @@ const Dashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        {/* Top Bar */}
-        <header className="bg-white shadow-sm">
+        {/* Top Bar - Glassmorphism */}
+        <header className="bg-white/5 backdrop-blur-md border-b border-white/10 shadow-xl">
           <div className="px-8 py-4">
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-2xl font-bold text-white">
               Welcome to SpreadVerse Super Admin
             </h1>
-            <p className="text-gray-600 mt-1">
+            <p className="text-cyan-300/80 mt-1">
               Multi-tenant Enterprise CRM Dashboard
             </p>
           </div>
@@ -187,14 +190,14 @@ const Dashboard: React.FC = () => {
             />
           </div>
 
-          {/* Placeholder Content */}
-          <div className="bg-white rounded-xl shadow-sm p-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          {/* Placeholder Content - Glassmorphism Card */}
+          <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl shadow-2xl p-8 hover:bg-white/10 transition-all duration-300">
+            <h2 className="text-xl font-semibold text-white mb-4">
               Recent Activity
             </h2>
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-cyan-300/60">
               <svg
-                className="w-16 h-16 mx-auto mb-4 text-gray-400"
+                className="w-16 h-16 mx-auto mb-4 text-cyan-400/50"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -225,10 +228,10 @@ interface NavItemProps {
 
 const NavItem: React.FC<NavItemProps> = ({ icon, label, active, collapsed }) => (
   <button
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 transform ${
       active
-        ? 'bg-primary-800 text-white'
-        : 'text-primary-200 hover:bg-primary-800 hover:text-white'
+        ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-white border border-cyan-500/30 shadow-lg shadow-cyan-500/20 scale-105'
+        : 'text-slate-300 hover:bg-white/10 hover:text-white hover:scale-105 hover:shadow-lg'
     }`}
   >
     <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,10 +250,15 @@ interface StatsCardProps {
 }
 
 const StatsCard: React.FC<StatsCardProps> = ({ title, value, change, positive }) => (
-  <div className="bg-white rounded-xl shadow-sm p-6">
-    <p className="text-sm text-gray-600 mb-2">{title}</p>
-    <p className="text-3xl font-bold text-gray-900 mb-2">{value}</p>
-    <p className={`text-sm font-medium ${positive ? 'text-green-600' : 'text-red-600'}`}>
+  <div
+    className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl shadow-2xl p-6 hover:bg-white/10 transition-all duration-300 transform hover:scale-105 hover:-translate-y-1 hover:shadow-cyan-500/20 cursor-pointer group"
+    style={{
+      boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+    }}
+  >
+    <p className="text-sm text-cyan-300/70 mb-2 group-hover:text-cyan-300 transition-colors">{title}</p>
+    <p className="text-3xl font-bold text-white mb-2 bg-gradient-to-r from-white to-cyan-200 bg-clip-text text-transparent">{value}</p>
+    <p className={`text-sm font-medium ${positive ? 'text-green-400' : 'text-red-400'}`}>
       {change} from last month
     </p>
   </div>
