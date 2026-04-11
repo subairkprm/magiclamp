@@ -3,9 +3,21 @@ MagicLamp — Input Validation Models
 Comprehensive Pydantic models for API input validation and security.
 """
 
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator
 from typing import Optional, List, Dict, Any, Literal, Annotated
 import re
+import socket
+import ipaddress
+import urllib.parse
+
+# ── STRICT BASE MODEL ────────────────────────────────────────
+
+
+class StrictBaseModel(BaseModel):
+    """Base model with strict type checking to prevent silent coercion."""
+
+    model_config = ConfigDict(strict=True)
+
 
 # ── PASSWORD VALIDATION ──────────────────────────────────────
 
@@ -15,6 +27,45 @@ class PasswordValidator:
 
     MIN_LENGTH = 12
     COMMON_PASSWORDS_FILE = None  # Could load from file in production
+
+    # Expanded list of the most commonly used weak passwords
+    _HARDCODED_COMMON_PASSWORDS = {
+        "password", "123456", "qwerty", "admin", "letmein", "welcome",
+        "password1", "password123", "123456789", "12345678", "12345",
+        "1234567", "1234567890", "abc123", "iloveyou", "monkey", "dragon",
+        "master", "superman", "batman", "trustno1", "sunshine", "princess",
+        "shadow", "michael", "jessica", "charlie", "donald", "football",
+        "baseball", "soccer", "hockey", "pokemon", "starwars", "minecraft",
+        "qwerty123", "qwertyuiop", "asdfghjkl", "zxcvbnm", "passw0rd",
+        "p@ssword", "p@ssw0rd", "password!", "pass123", "pass1234",
+        "admin123", "admin1234", "root", "root123", "toor", "test",
+        "test123", "guest", "guest123", "user", "user123", "login",
+        "login123", "secret", "secret123", "changeme", "change123",
+        "1q2w3e4r", "1q2w3e", "qazwsx", "zaq12wsx", "qweasd",
+        "aaaaaa", "aaaaaaaaaaaa", "111111", "111111111111", "000000",
+        "696969", "123123", "654321", "987654321", "121212",
+        "abcdef", "abcdefgh", "abcdefghij", "abcdefghijkl",
+        "whatever", "nothing", "blahblah", "hello", "hello123",
+        "freedom", "love", "cheese", "butter", "cookie", "cake",
+        "computer", "internet", "website", "network", "server",
+        "superman1", "batman1", "spiderman", "ironman", "captain",
+    }
+
+    @classmethod
+    def load_common_passwords(cls) -> set:
+        """
+        Load common passwords from file if available, falling back to
+        the hardcoded set.
+        """
+        if cls.COMMON_PASSWORDS_FILE:
+            try:
+                with open(cls.COMMON_PASSWORDS_FILE, "r", encoding="utf-8") as f:
+                    passwords = {line.strip().lower() for line in f if line.strip()}
+                    if passwords:
+                        return passwords
+            except (OSError, IOError):
+                pass
+        return cls._HARDCODED_COMMON_PASSWORDS
 
     @staticmethod
     def validate(password: str) -> tuple[bool, Optional[str]]:
@@ -41,9 +92,9 @@ class PasswordValidator:
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
             return False, "Password must contain at least one special character"
 
-        # Check against common passwords (simple check)
-        common_weak = ["password", "123456", "qwerty", "admin", "letmein", "welcome"]
-        if password.lower() in common_weak:
+        # Check against common passwords
+        common_passwords = PasswordValidator.load_common_passwords()
+        if password.lower() in common_passwords:
             return False, "Password is too common and easily guessed"
 
         return True, None
@@ -52,20 +103,21 @@ class PasswordValidator:
 # ── AUTH MODELS ──────────────────────────────────────────────
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(StrictBaseModel):
     username: Annotated[str, Field(min_length=3, max_length=255, strip_whitespace=True)]
     password: str = Field(..., min_length=6)
 
     @field_validator("username")
     @classmethod
     def username_valid(cls, v):
-        # Prevent SQL injection attempts
-        if any(char in v for char in ["'", '"', ";", "--", "/*", "*/"]):
-            raise ValueError("Invalid characters in username")
+        # Strict allowlist: alphanumeric, underscore, dash only.
+        # SQL injection must be prevented at the DB layer via parameterized queries.
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError("Username can only contain letters, numbers, underscore, and dash")
         return v.lower().strip()
 
 
-class ChangePasswordRequest(BaseModel):
+class ChangePasswordRequest(StrictBaseModel):
     current_password: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=12)
 
@@ -78,7 +130,7 @@ class ChangePasswordRequest(BaseModel):
         return v
 
 
-class CreateUserRequest(BaseModel):
+class CreateUserRequest(StrictBaseModel):
     username: Annotated[str, Field(min_length=3, max_length=50, strip_whitespace=True)]
     email: EmailStr
     password: str = Field(..., min_length=12)
@@ -105,7 +157,7 @@ class CreateUserRequest(BaseModel):
 # ── BRAIN API MODELS ─────────────────────────────────────────
 
 
-class RememberRequest(BaseModel):
+class RememberRequest(StrictBaseModel):
     key: Annotated[str, Field(pattern=r"^[a-z0-9._-]+$", min_length=1, max_length=100)]
     value: Any
     source: Optional[str] = Field(default="api", max_length=50)
@@ -121,7 +173,7 @@ class RememberRequest(BaseModel):
         return v
 
 
-class ObserveRequest(BaseModel):
+class ObserveRequest(StrictBaseModel):
     text: Annotated[str, Field(min_length=1, max_length=5000, strip_whitespace=True)]
     event_type: Optional[str] = Field(default="observation", max_length=50)
     category: Optional[str] = Field(default="general", max_length=50)
@@ -136,32 +188,38 @@ class ObserveRequest(BaseModel):
         return v
 
 
-class ReasonLeadRequest(BaseModel):
+class ReasonLeadRequest(StrictBaseModel):
     lead: Dict[str, Any] = Field(..., description="Lead data for analysis")
 
     @field_validator("lead")
     @classmethod
     def validate_lead(cls, v):
-        if not isinstance(v, dict):
-            raise ValueError("Lead must be a dictionary")
+        # Pydantic already enforces Dict[str, Any]; just guard against huge payloads.
         if len(str(v)) > 10000:  # Prevent DoS via huge payloads
             raise ValueError("Lead data too large")
         return v
 
 
-class ReasonAskRequest(BaseModel):
+class ReasonAskRequest(StrictBaseModel):
     question: Annotated[str, Field(min_length=5, max_length=1000, strip_whitespace=True)]
 
     @field_validator("question")
     @classmethod
     def sanitize_question(cls, v):
-        # Remove potential injection attempts
-        if any(pattern in v.lower() for pattern in ["<script", "javascript:", "onerror="]):
+        # Remove potential XSS/injection attempts.
+        # NOTE: For production use a proper sanitization library such as nh3 or bleach.
+        forbidden = [
+            "<script", "javascript:", "onerror=", "onclick=", "onload=",
+            "onmouseover=", "onfocus=", "<svg", "<object", "<embed",
+            "<form", "data:text/html", "<base", "<link", "vbscript:",
+            "expression(", "<iframe",
+        ]
+        if any(pattern in v.lower() for pattern in forbidden):
             raise ValueError("Question contains forbidden content")
         return v
 
 
-class ReasonDecideRequest(BaseModel):
+class ReasonDecideRequest(StrictBaseModel):
     situation: Annotated[str, Field(min_length=5, max_length=2000, strip_whitespace=True)]
     options: Optional[List[str]] = Field(default=None, max_length=20)
 
@@ -175,14 +233,14 @@ class ReasonDecideRequest(BaseModel):
         return v
 
 
-class TrainingAddRequest(BaseModel):
+class TrainingAddRequest(StrictBaseModel):
     input_text: Annotated[str, Field(min_length=1, max_length=5000)]
     output_text: Annotated[str, Field(min_length=1, max_length=5000)]
     source: Optional[str] = Field(default="manual", max_length=50)
-    quality: float = Field(default=1.0, ge=0.0, le=2.0)
+    quality: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
-class RecordChangeRequest(BaseModel):
+class RecordChangeRequest(StrictBaseModel):
     what: Annotated[str, Field(min_length=1, max_length=100, strip_whitespace=True)]
     from_val: Optional[str] = Field(default="", max_length=500)
     to_val: Optional[str] = Field(default="", max_length=500)
@@ -192,7 +250,7 @@ class RecordChangeRequest(BaseModel):
 # ── ADMIN API MODELS ─────────────────────────────────────────
 
 
-class CreateOrgRequest(BaseModel):
+class CreateOrgRequest(StrictBaseModel):
     name: Annotated[str, Field(min_length=2, max_length=100, strip_whitespace=True)]
     slug: Annotated[str, Field(pattern=r"^[a-z0-9-]+$", min_length=2, max_length=50)]
     plan: Literal["free", "starter", "pro", "enterprise"] = "free"
@@ -205,13 +263,13 @@ class CreateOrgRequest(BaseModel):
         return v
 
 
-class UpdateOrgRequest(BaseModel):
+class UpdateOrgRequest(StrictBaseModel):
     name: Optional[Annotated[str, Field(min_length=2, max_length=100)]] = None
     plan: Optional[Literal["free", "starter", "pro", "enterprise"]] = None
     status: Optional[Literal["active", "suspended", "deleted"]] = None
 
 
-class CreateAPIKeyRequest(BaseModel):
+class CreateAPIKeyRequest(StrictBaseModel):
     name: Annotated[str, Field(min_length=3, max_length=100, strip_whitespace=True)]
     scopes: List[str] = Field(default=["read"], max_length=20)
 
@@ -225,7 +283,7 @@ class CreateAPIKeyRequest(BaseModel):
         return v
 
 
-class CreateWebhookRequest(BaseModel):
+class CreateWebhookRequest(StrictBaseModel):
     name: Annotated[str, Field(min_length=3, max_length=100)]
     url: Annotated[str, Field(pattern=r"^https?://.+", max_length=500)]
     events: List[str] = Field(default=[], max_length=50)
@@ -237,10 +295,21 @@ class CreateWebhookRequest(BaseModel):
         if not v.startswith("https://"):
             # Warning: allowing http for development
             pass
-        # Prevent SSRF to internal networks
-        forbidden_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "10.", "192.168.", "172.16."]
-        if any(host in v.lower() for host in forbidden_hosts):
-            raise ValueError("Webhook URL cannot point to internal network")
+        # Prevent SSRF: resolve the hostname to an IP and reject private/reserved ranges.
+        # Simple substring matching is trivially bypassed (e.g. nip.io redirects, IPv6, hex IPs).
+        parsed = urllib.parse.urlparse(v)
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("Webhook URL must have a valid hostname")
+        try:
+            addr_infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as exc:
+            raise ValueError(f"Webhook URL hostname could not be resolved: {hostname}") from exc
+        for addr_info in addr_infos:
+            ip_str = addr_info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise ValueError("Webhook URL cannot point to internal network")
         return v
 
     @field_validator("events")
@@ -260,7 +329,7 @@ class CreateWebhookRequest(BaseModel):
         return v
 
 
-class AuditLogQuery(BaseModel):
+class AuditLogQuery(StrictBaseModel):
     limit: int = Field(default=50, ge=1, le=1000)
     action: Optional[Annotated[str, Field(max_length=100)]] = None
 
@@ -268,12 +337,14 @@ class AuditLogQuery(BaseModel):
     @classmethod
     def sanitize_action(cls, v):
         if v:
-            # Prevent SQL injection
-            v = re.sub(r"[^\w\s.-]", "", v)
+            # Strict allowlist: only alphanumeric, underscore, dot, dash.
+            # SQL injection must be prevented at the DB layer via parameterized queries.
+            if not re.match(r"^[a-zA-Z0-9_.-]+$", v):
+                raise ValueError("Action contains invalid characters")
         return v
 
 
-class ResetPasswordRequest(BaseModel):
+class ResetPasswordRequest(StrictBaseModel):
     password: str = Field(..., min_length=12)
 
     @field_validator("password")
@@ -289,15 +360,25 @@ class ResetPasswordRequest(BaseModel):
 
 
 def get_client_ip(request) -> str:
-    """Extract client IP for rate limiting"""
+    """Extract client IP for rate limiting.
+
+    WARNING: X-Forwarded-For is client-controlled and must only be trusted
+    when the application is deployed behind a known, trusted reverse proxy.
+    The rightmost IP is used because it is appended by the closest trusted
+    proxy, making it harder to spoof than the leftmost value.
+    """
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
 def sanitize_string(value: str, max_length: int = 1000) -> str:
-    """Sanitize string input to prevent injection attacks"""
+    """Sanitize string input to prevent injection attacks.
+
+    NOTE: For production use a proper sanitization library such as nh3 or
+    bleach rather than this blocklist, which may miss novel attack vectors.
+    """
     if not value:
         return ""
 
@@ -315,6 +396,17 @@ def sanitize_string(value: str, max_length: int = 1000) -> str:
         "onerror=",
         "onclick=",
         "onload=",
+        "onmouseover=",
+        "onfocus=",
+        "<svg",
+        "<object",
+        "<embed",
+        "<form",
+        "data:text/html",
+        "<base",
+        "<link",
+        "vbscript:",
+        "expression(",
         "<iframe",
         "eval(",
         "DROP TABLE",
