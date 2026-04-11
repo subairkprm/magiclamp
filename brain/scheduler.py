@@ -17,10 +17,25 @@ from core.config import settings
 from core.logger import get_logger
 from core.bus import bus
 from core.circuit import ollama_circuit
-from supabase import create_client
+from supabase import create_client, Client
 
 log = get_logger("scheduler")
-supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+# Lazy-initialized Supabase client (created only when jobs actually run)
+_supabase_client: Optional[Client] = None
+
+
+def _get_supabase_client() -> Client:
+    """
+    Get or create Supabase client (lazy initialization).
+    This prevents database connection during module import,
+    only connecting when scheduled jobs actually execute.
+    """
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        log.info("[Scheduler] Supabase client initialized (lazy)")
+    return _supabase_client
 
 
 class AutoScheduler:
@@ -138,6 +153,9 @@ class AutoScheduler:
         try:
             log.info("[Job:CRM Snapshot] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get lead counts by status
             leads = supabase.table("leads").select("id,status,score", count="exact").execute()
 
@@ -174,6 +192,9 @@ class AutoScheduler:
         try:
             log.info("[Job:Score Leads] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get leads without scores or old scores
             result = supabase.table("leads").select("*").is_("score", "null").limit(50).execute()
 
@@ -205,6 +226,9 @@ class AutoScheduler:
         """Analyze patterns in CRM data"""
         try:
             log.info("[Job:Pattern Analysis] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get recent events
             events = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(100).execute()
@@ -246,6 +270,9 @@ class AutoScheduler:
         try:
             log.info("[Job:Self Analysis] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get system metrics
             facts_count = supabase.table("brain_facts").select("id", count="exact").execute().count or 0
             events_count = supabase.table("brain_events").select("id", count="exact").execute().count or 0
@@ -282,6 +309,9 @@ class AutoScheduler:
         """Generate and send daily briefing"""
         try:
             log.info("[Job:Daily Briefing] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get yesterday's activity
             from datetime import timedelta
@@ -334,6 +364,9 @@ class AutoScheduler:
         """Consolidate and optimize memory storage"""
         try:
             log.info("[Job:Memory Consolidation] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get low-confidence facts
             low_confidence = supabase.table("brain_facts").select("*").lt("confidence", 0.3).execute()
