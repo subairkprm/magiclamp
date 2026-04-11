@@ -3,6 +3,7 @@ MagicLamp Domain Models
 Pydantic models for core entities with multi-tenant support.
 Every model includes tenant_id for data isolation.
 """
+
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime
@@ -12,6 +13,7 @@ import re
 # ── BASE MODEL ────────────────────────────────────
 class TenantModel(BaseModel):
     """Base model for all tenant-scoped entities."""
+
     tenant_id: str = Field(..., description="Tenant identifier for data isolation")
 
     class Config:
@@ -24,6 +26,7 @@ class TenantModel(BaseModel):
 # ── USER MODELS ───────────────────────────────────
 class User(TenantModel):
     """User entity with authentication and authorization."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=255)
     email: EmailStr
@@ -34,7 +37,7 @@ class User(TenantModel):
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
 
-    @validator('name')
+    @validator("name")
     def name_not_empty(cls, v):
         if not v.strip():
             raise ValueError("Name cannot be empty")
@@ -43,6 +46,7 @@ class User(TenantModel):
 
 class Team(TenantModel):
     """Team/Group within a tenant."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
@@ -53,6 +57,7 @@ class Team(TenantModel):
 
 class TeamMember(TenantModel):
     """Association between users and teams."""
+
     id: Optional[str] = None
     team_id: str
     user_id: str
@@ -63,6 +68,7 @@ class TeamMember(TenantModel):
 # ── BRAIN MODELS ──────────────────────────────────
 class Fact(TenantModel):
     """Knowledge fact stored in the brain."""
+
     id: Optional[str] = None
     key: str = Field(..., min_length=1, max_length=255)
     value: Any
@@ -71,15 +77,16 @@ class Fact(TenantModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    @validator('key')
+    @validator("key")
     def key_valid(cls, v):
-        if not re.match(r'^[a-z0-9._-]+$', v):
+        if not re.match(r"^[a-z0-9._-]+$", v):
             raise ValueError("Key must contain only lowercase letters, numbers, dots, underscores, and dashes")
         return v
 
 
 class Event(TenantModel):
     """Observable event in the system."""
+
     id: Optional[str] = None
     event_type: str = Field(..., max_length=100)
     category: str = Field(default="general", max_length=100)
@@ -88,15 +95,16 @@ class Event(TenantModel):
     importance: int = Field(default=1, ge=1, le=5)
     created_at: Optional[datetime] = None
 
-    @validator('event_type', 'category')
+    @validator("event_type", "category")
     def type_valid(cls, v):
-        if not re.match(r'^[a-z0-9_-]+$', v):
+        if not re.match(r"^[a-z0-9_-]+$", v):
             raise ValueError("Type must contain only lowercase letters, numbers, underscores, and dashes")
         return v
 
 
 class TrainingData(TenantModel):
     """Training data for AI model fine-tuning."""
+
     id: Optional[str] = None
     input: str = Field(..., min_length=1, max_length=10000)
     output: str = Field(..., min_length=1, max_length=10000)
@@ -109,6 +117,7 @@ class TrainingData(TenantModel):
 
 class Decision(TenantModel):
     """AI-made decision record."""
+
     id: Optional[str] = None
     trigger: str = Field(..., max_length=1000)
     reasoning: str = Field(..., max_length=2000)
@@ -120,6 +129,7 @@ class Decision(TenantModel):
 
 class Analysis(TenantModel):
     """Brain self-analysis record."""
+
     id: Optional[str] = None
     subject: str = Field(..., max_length=200)
     analysis: str = Field(..., min_length=1)
@@ -130,6 +140,7 @@ class Analysis(TenantModel):
 # ── TASK MODELS ───────────────────────────────────
 class Task(TenantModel):
     """Background task tracking."""
+
     task_id: str = Field(..., description="Unique task identifier")
     task_type: Literal["reason_lead", "reason_ask", "reason_decide", "custom"] = "custom"
     status: Literal["processing", "completed", "failed"] = "processing"
@@ -147,6 +158,7 @@ class Task(TenantModel):
 # ── ORGANIZATION MODELS ───────────────────────────
 class Organization(BaseModel):
     """Organization/Tenant entity. Note: No tenant_id since this IS the tenant."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=255)
     slug: str = Field(..., min_length=1, max_length=100)
@@ -156,9 +168,9 @@ class Organization(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    @validator('slug')
+    @validator("slug")
     def slug_valid(cls, v):
-        if not re.match(r'^[a-z0-9-]+$', v):
+        if not re.match(r"^[a-z0-9-]+$", v):
             raise ValueError("Slug must contain only lowercase letters, numbers, and dashes")
         return v.lower()
 
@@ -170,6 +182,7 @@ class Organization(BaseModel):
 # ── API KEY MODELS ────────────────────────────────
 class APIKey(TenantModel):
     """API key for programmatic access."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=100)
     key_hash: str
@@ -184,6 +197,7 @@ class APIKey(TenantModel):
 # ── WEBHOOK MODELS ────────────────────────────────
 class Webhook(TenantModel):
     """Webhook configuration for event notifications."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=100)
     url: str = Field(..., min_length=1, max_length=500)
@@ -194,9 +208,9 @@ class Webhook(TenantModel):
     failure_count: int = 0
     created_at: Optional[datetime] = None
 
-    @validator('url')
+    @validator("url")
     def url_valid(cls, v):
-        if not v.startswith(('http://', 'https://')):
+        if not v.startswith(("http://", "https://")):
             raise ValueError("Webhook URL must start with http:// or https://")
         return v
 
@@ -204,6 +218,7 @@ class Webhook(TenantModel):
 # ── INTEGRATION MODELS ────────────────────────────
 class Integration(TenantModel):
     """External service integration."""
+
     id: Optional[str] = None
     type: str = Field(..., max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
@@ -217,6 +232,7 @@ class Integration(TenantModel):
 # ── AUDIT LOG MODELS ──────────────────────────────
 class AuditLog(TenantModel):
     """Audit trail for all tenant actions."""
+
     id: Optional[str] = None
     action: str = Field(..., max_length=100)
     resource_type: str = Field(..., max_length=50)
@@ -228,9 +244,9 @@ class AuditLog(TenantModel):
     user_agent: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    @validator('action')
+    @validator("action")
     def action_valid(cls, v):
-        if not re.match(r'^[a-z0-9._-]+$', v):
+        if not re.match(r"^[a-z0-9._-]+$", v):
             raise ValueError("Action must contain only lowercase letters, numbers, dots, underscores, and dashes")
         return v
 
@@ -238,6 +254,7 @@ class AuditLog(TenantModel):
 # ── SUBSCRIPTION MODELS ───────────────────────────
 class SubscriptionPlan(BaseModel):
     """Subscription plan definition. Global, not tenant-scoped."""
+
     id: Optional[str] = None
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=50)

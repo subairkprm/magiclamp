@@ -3,6 +3,7 @@ MagicLamp — Auto Scheduler
 Background job scheduler for autonomous brain operations.
 Runs periodic tasks: CRM snapshots, lead scoring, pattern analysis, briefings.
 """
+
 import asyncio
 from typing import Callable, Dict, List, Optional
 from datetime import datetime, time
@@ -65,18 +66,12 @@ class AutoScheduler:
 
         # Every 6 hours: Take CRM snapshot
         self._add_job(
-            "crm_snapshot",
-            self.job_crm_snapshot,
-            CronTrigger(hour="*/6", minute=0),
-            "Take CRM snapshot every 6 hours"
+            "crm_snapshot", self.job_crm_snapshot, CronTrigger(hour="*/6", minute=0), "Take CRM snapshot every 6 hours"
         )
 
         # Every 2 hours: Score new leads
         self._add_job(
-            "score_leads",
-            self.job_score_new_leads,
-            IntervalTrigger(hours=2),
-            "Score new leads every 2 hours"
+            "score_leads", self.job_score_new_leads, IntervalTrigger(hours=2), "Score new leads every 2 hours"
         )
 
         # Daily at 3 AM: Pattern analysis
@@ -84,23 +79,17 @@ class AutoScheduler:
             "pattern_analysis",
             self.job_pattern_analysis,
             CronTrigger(hour=3, minute=0),
-            "Analyze patterns daily at 3 AM"
+            "Analyze patterns daily at 3 AM",
         )
 
         # Daily at 4 AM: Self analysis
         self._add_job(
-            "self_analysis",
-            self.job_self_analysis,
-            CronTrigger(hour=4, minute=0),
-            "Self-analysis daily at 4 AM"
+            "self_analysis", self.job_self_analysis, CronTrigger(hour=4, minute=0), "Self-analysis daily at 4 AM"
         )
 
         # Daily at 8 AM: Daily briefing
         self._add_job(
-            "daily_briefing",
-            self.job_daily_briefing,
-            CronTrigger(hour=8, minute=0),
-            "Send daily briefing at 8 AM"
+            "daily_briefing", self.job_daily_briefing, CronTrigger(hour=8, minute=0), "Send daily briefing at 8 AM"
         )
 
         # Every 12 hours: Memory consolidation
@@ -108,7 +97,7 @@ class AutoScheduler:
             "memory_consolidation",
             self.job_memory_consolidation,
             IntervalTrigger(hours=12),
-            "Consolidate memories every 12 hours"
+            "Consolidate memories every 12 hours",
         )
 
     def _add_job(self, job_id: str, func: Callable, trigger, description: str):
@@ -121,7 +110,7 @@ class AutoScheduler:
                 name=description,
                 replace_existing=True,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=300  # 5 minutes grace for missed jobs
+                misfire_grace_time=300,  # 5 minutes grace for missed jobs
             )
             self._jobs[job_id] = job
             log.info(f"[Scheduler] Registered: {job_id} — {description}")
@@ -132,12 +121,14 @@ class AutoScheduler:
         """Get list of all registered jobs with status"""
         jobs_list = []
         for job_id, job in self._jobs.items():
-            jobs_list.append({
-                "id": job_id,
-                "name": job.name,
-                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
-                "trigger": str(job.trigger),
-            })
+            jobs_list.append(
+                {
+                    "id": job_id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                    "trigger": str(job.trigger),
+                }
+            )
         return jobs_list
 
     # ── JOB IMPLEMENTATIONS ──────────────────────────────────────
@@ -157,17 +148,19 @@ class AutoScheduler:
                 "timestamp": datetime.utcnow().isoformat(),
                 "total_leads": leads.count or 0,
                 "teams_count": teams.count or 0,
-                "snapshot_type": "crm_overview"
+                "snapshot_type": "crm_overview",
             }
 
             # Store as brain event
-            supabase.table("brain_events").insert({
-                "event_type": "crm_snapshot",
-                "category": "automation",
-                "data": snapshot,
-                "summary": f"CRM snapshot: {snapshot['total_leads']} leads",
-                "importance": 2,
-            }).execute()
+            supabase.table("brain_events").insert(
+                {
+                    "event_type": "crm_snapshot",
+                    "category": "automation",
+                    "data": snapshot,
+                    "summary": f"CRM snapshot: {snapshot['total_leads']} leads",
+                    "importance": 2,
+                }
+            ).execute()
 
             await bus.emit("scheduler.crm_snapshot.completed", snapshot)
             log.info(f"[Job:CRM Snapshot] Complete — {snapshot['total_leads']} leads")
@@ -214,8 +207,7 @@ class AutoScheduler:
             log.info("[Job:Pattern Analysis] Starting...")
 
             # Get recent events
-            events = supabase.table("brain_events").select("*")\
-                .order("created_at", desc=True).limit(100).execute()
+            events = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(100).execute()
 
             if not events.data:
                 log.info("[Job:Pattern Analysis] No events to analyze")
@@ -231,15 +223,17 @@ class AutoScheduler:
                 "timestamp": datetime.utcnow().isoformat(),
                 "events_analyzed": len(events.data),
                 "event_type_distribution": event_types,
-                "most_common_event": max(event_types.items(), key=lambda x: x[1])[0] if event_types else None
+                "most_common_event": max(event_types.items(), key=lambda x: x[1])[0] if event_types else None,
             }
 
             # Store analysis
-            supabase.table("brain_analyses").insert({
-                "subject": "pattern_analysis",
-                "analysis": str(analysis),
-                "metrics": analysis,
-            }).execute()
+            supabase.table("brain_analyses").insert(
+                {
+                    "subject": "pattern_analysis",
+                    "analysis": str(analysis),
+                    "metrics": analysis,
+                }
+            ).execute()
 
             await bus.emit("scheduler.pattern_analysis.completed", analysis)
             log.info(f"[Job:Pattern Analysis] Complete — {len(events.data)} events analyzed")
@@ -266,15 +260,17 @@ class AutoScheduler:
                 "facts_count": facts_count,
                 "events_count": events_count,
                 "decisions_count": decisions_count,
-                "status": "healthy" if health_score > 50 else "degraded"
+                "status": "healthy" if health_score > 50 else "degraded",
             }
 
             # Store self-analysis
-            supabase.table("brain_analyses").insert({
-                "subject": "self_analysis",
-                "analysis": str(analysis),
-                "metrics": analysis,
-            }).execute()
+            supabase.table("brain_analyses").insert(
+                {
+                    "subject": "self_analysis",
+                    "analysis": str(analysis),
+                    "metrics": analysis,
+                }
+            ).execute()
 
             await bus.emit("scheduler.self_analysis.completed", analysis)
             log.info(f"[Job:Self Analysis] Complete — Health score: {health_score}")
@@ -289,33 +285,40 @@ class AutoScheduler:
 
             # Get yesterday's activity
             from datetime import timedelta
+
             yesterday = datetime.utcnow() - timedelta(days=1)
 
-            events = supabase.table("brain_events")\
-                .select("*", count="exact")\
-                .gte("created_at", yesterday.isoformat())\
+            events = (
+                supabase.table("brain_events")
+                .select("*", count="exact")
+                .gte("created_at", yesterday.isoformat())
                 .execute()
+            )
 
-            decisions = supabase.table("brain_decisions")\
-                .select("*", count="exact")\
-                .gte("created_at", yesterday.isoformat())\
+            decisions = (
+                supabase.table("brain_decisions")
+                .select("*", count="exact")
+                .gte("created_at", yesterday.isoformat())
                 .execute()
+            )
 
             briefing = {
                 "date": datetime.utcnow().date().isoformat(),
                 "events_yesterday": events.count or 0,
                 "decisions_made": decisions.count or 0,
-                "summary": f"Yesterday: {events.count or 0} events, {decisions.count or 0} decisions"
+                "summary": f"Yesterday: {events.count or 0} events, {decisions.count or 0} decisions",
             }
 
             # Store briefing
-            supabase.table("brain_events").insert({
-                "event_type": "daily_briefing",
-                "category": "automation",
-                "data": briefing,
-                "summary": briefing["summary"],
-                "importance": 3,
-            }).execute()
+            supabase.table("brain_events").insert(
+                {
+                    "event_type": "daily_briefing",
+                    "category": "automation",
+                    "data": briefing,
+                    "summary": briefing["summary"],
+                    "importance": 3,
+                }
+            ).execute()
 
             await bus.emit("scheduler.daily_briefing.completed", briefing)
             log.info(f"[Job:Daily Briefing] Complete — {briefing['summary']}")
@@ -333,10 +336,7 @@ class AutoScheduler:
             log.info("[Job:Memory Consolidation] Starting...")
 
             # Get low-confidence facts
-            low_confidence = supabase.table("brain_facts")\
-                .select("*")\
-                .lt("confidence", 0.3)\
-                .execute()
+            low_confidence = supabase.table("brain_facts").select("*").lt("confidence", 0.3).execute()
 
             if low_confidence.data:
                 # Archive low-confidence facts
@@ -344,10 +344,9 @@ class AutoScheduler:
                 for fact in low_confidence.data:
                     # Move to archive or delete
                     # For now, just mark them
-                    supabase.table("brain_facts")\
-                        .update({"source": "archived_low_confidence"})\
-                        .eq("id", fact["id"])\
-                        .execute()
+                    supabase.table("brain_facts").update({"source": "archived_low_confidence"}).eq(
+                        "id", fact["id"]
+                    ).execute()
                     archived_count += 1
 
                 log.info(f"[Job:Memory Consolidation] Archived {archived_count} low-confidence facts")
@@ -398,11 +397,7 @@ class AutoScheduler:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(
                     f"https://api.telegram.org/bot{settings.TELEGRAM_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": settings.TELEGRAM_ADMIN,
-                        "text": message,
-                        "parse_mode": "HTML"
-                    }
+                    json={"chat_id": settings.TELEGRAM_ADMIN, "text": message, "parse_mode": "HTML"},
                 )
             log.info("[Scheduler] Telegram briefing sent")
         except Exception as e:

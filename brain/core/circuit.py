@@ -3,6 +3,7 @@ MagicLamp — Circuit Breaker
 Prevents cascade failures when external services (Ollama, Supabase) go down.
 States: CLOSED (normal) → OPEN (failing) → HALF_OPEN (testing recovery)
 """
+
 import asyncio
 import time
 from enum import Enum
@@ -11,10 +12,12 @@ from core.logger import get_logger
 
 log = get_logger("circuit_breaker")
 
+
 class CircuitState(Enum):
-    CLOSED    = "closed"      # Normal — requests pass through
-    OPEN      = "open"        # Failing — requests blocked immediately
-    HALF_OPEN = "half_open"   # Testing — one request allowed through
+    CLOSED = "closed"  # Normal — requests pass through
+    OPEN = "open"  # Failing — requests blocked immediately
+    HALF_OPEN = "half_open"  # Testing — one request allowed through
+
 
 class CircuitBreaker:
     def __init__(
@@ -85,11 +88,13 @@ class CircuitBreaker:
             "failures": self._failure_count,
         }
 
+
 class CircuitOpenError(Exception):
     pass
 
+
 # Global circuit breakers
-ollama_circuit   = CircuitBreaker("ollama",   failure_threshold=3, recovery_timeout=20)
+ollama_circuit = CircuitBreaker("ollama", failure_threshold=3, recovery_timeout=20)
 supabase_circuit = CircuitBreaker("supabase", failure_threshold=5, recovery_timeout=30)
 telegram_circuit = CircuitBreaker("telegram", failure_threshold=5, recovery_timeout=60)
-n8n_circuit      = CircuitBreaker("n8n",      failure_threshold=3, recovery_timeout=30)
+n8n_circuit = CircuitBreaker("n8n", failure_threshold=3, recovery_timeout=30)
