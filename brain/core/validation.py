@@ -302,20 +302,14 @@ class CreateWebhookRequest(StrictBaseModel):
         if not hostname:
             raise ValueError("Webhook URL must have a valid hostname")
         try:
-            # getaddrinfo returns resolved IP(s); use the first result
             addr_infos = socket.getaddrinfo(hostname, None)
-            for addr_info in addr_infos:
-                ip_str = addr_info[4][0]
-                ip = ipaddress.ip_address(ip_str)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    raise ValueError("Webhook URL cannot point to internal network")
-                # Also block IPv6 loopback explicitly
-                if ip_str == "::1":
-                    raise ValueError("Webhook URL cannot point to internal network")
-        except (socket.gaierror, ValueError) as exc:
-            if "Webhook URL" in str(exc):
-                raise
+        except socket.gaierror as exc:
             raise ValueError(f"Webhook URL hostname could not be resolved: {hostname}") from exc
+        for addr_info in addr_infos:
+            ip_str = addr_info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise ValueError("Webhook URL cannot point to internal network")
         return v
 
     @field_validator("events")
@@ -345,7 +339,7 @@ class AuditLogQuery(StrictBaseModel):
         if v:
             # Strict allowlist: only alphanumeric, underscore, dot, dash.
             # SQL injection must be prevented at the DB layer via parameterized queries.
-            if not re.match(r"^[a-zA-Z0-9_.\-]+$", v):
+            if not re.match(r"^[a-zA-Z0-9_.-]+$", v):
                 raise ValueError("Action contains invalid characters")
         return v
 
