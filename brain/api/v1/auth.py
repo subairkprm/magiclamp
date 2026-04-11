@@ -11,12 +11,10 @@ from core.validation import LoginRequest, ChangePasswordRequest
 from core.database import get_database_client, DatabaseClient
 from repositories import UserRepository
 from core.exceptions import RecordNotFoundError
+from core.limiter import limiter
 
 log = get_logger("api.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-# Import limiter from main
-from main import limiter
 
 class RefreshRequest(BaseModel):
     refresh_token: str
