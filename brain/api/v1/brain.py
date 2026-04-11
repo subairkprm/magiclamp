@@ -20,6 +20,7 @@ from core.validation import (
 )
 from core.database import get_database_client, DatabaseClient
 from repositories import FactRepository
+from core.limiter import limiter
 import httpx, json, asyncio, uuid
 from datetime import datetime
 from functools import lru_cache
@@ -27,9 +28,6 @@ from time import time
 
 log = get_logger("api.brain")
 router = APIRouter(prefix="/brain", tags=["brain"])
-
-# Import limiter from main
-from main import limiter
 
 # Cache for fact loading with TTL
 _fact_cache: Dict[str, tuple[List[Dict], float]] = {}
