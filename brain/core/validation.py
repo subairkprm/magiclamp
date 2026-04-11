@@ -99,7 +99,7 @@ class CreateUserRequest(BaseModel):
 # ── BRAIN API MODELS ─────────────────────────────────────────
 
 class RememberRequest(BaseModel):
-    key: constr(regex=r'^[a-z0-9._-]+$', min_length=1, max_length=100)
+    key: constr(pattern=r'^[a-z0-9._-]+$', min_length=1, max_length=100)
     value: Any
     source: Optional[str] = Field(default="api", max_length=50)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -181,7 +181,7 @@ class RecordChangeRequest(BaseModel):
 
 class CreateOrgRequest(BaseModel):
     name: constr(min_length=2, max_length=100, strip_whitespace=True)
-    slug: constr(regex=r'^[a-z0-9-]+$', min_length=2, max_length=50)
+    slug: constr(pattern=r'^[a-z0-9-]+$', min_length=2, max_length=50)
     plan: Literal["free", "starter", "pro", "enterprise"] = "free"
 
     @validator('slug')
@@ -212,7 +212,7 @@ class CreateAPIKeyRequest(BaseModel):
 
 class CreateWebhookRequest(BaseModel):
     name: constr(min_length=3, max_length=100)
-    url: constr(regex=r'^https?://.+', max_length=500)
+    url: constr(pattern=r'^https?://.+', max_length=500)
     events: List[str] = Field(default=[], max_items=50)
 
     @validator('url')
