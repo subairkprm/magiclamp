@@ -1,0 +1,58 @@
+{
+  "name": "magiclamp-desktop",
+  "version": "1.0.0",
+  "description": "MagicLamp AI Brain — Desktop Client",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:vite": "vite",
+    "dev:electron": "electron .",
+    "build": "vite build && electron-builder",
+    "build:ui": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "electron-store": "^8.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.24.0",
+    "zustand": "^4.5.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.magiclamp.desktop",
+    "productName": "MagicLamp",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../brain",
+        "to": "brain",
+        "filter": ["**/*", "!__pycache__/**", "!*.pyc"]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}

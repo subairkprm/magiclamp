@@ -20,12 +20,9 @@ from core.bus import bus
 from core.audit import AuditMiddleware
 from core.exceptions import MagicLampException
 from core.limiter import limiter
-
-log = get_logger("main")
-
-# Import API routes after limiter is defined
 from api.v1 import auth, admin, brain as brain_api
 
+log = get_logger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

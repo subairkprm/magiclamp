@@ -21,20 +21,12 @@ from supabase import create_client, Client
 
 log = get_logger("scheduler")
 
-# Lazy-initialized Supabase client (created only when jobs actually run)
-_supabase_client: Optional[Client] = None
+_supabase_client = None
 
-
-def _get_supabase_client() -> Client:
-    """
-    Get or create Supabase client (lazy initialization).
-    This prevents database connection during module import,
-    only connecting when scheduled jobs actually execute.
-    """
+def _get_supabase():
     global _supabase_client
     if _supabase_client is None:
         _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        log.info("[Scheduler] Supabase client initialized (lazy)")
     return _supabase_client
 
 
@@ -157,10 +149,10 @@ class AutoScheduler:
             supabase = _get_supabase_client()
 
             # Get lead counts by status
-            leads = supabase.table("leads").select("id,status,score", count="exact").execute()
+            leads = _get_supabase().table("leads").select("id,status,score", count="exact").execute()
 
             # Get team performance metrics
-            teams = supabase.table("teams").select("id,name", count="exact").execute()
+            teams = _get_supabase().table("teams").select("id,name", count="exact").execute()
 
             snapshot = {
                 "timestamp": datetime.utcnow().isoformat(),
@@ -170,15 +162,13 @@ class AutoScheduler:
             }
 
             # Store as brain event
-            supabase.table("brain_events").insert(
-                {
-                    "event_type": "crm_snapshot",
-                    "category": "automation",
-                    "data": snapshot,
-                    "summary": f"CRM snapshot: {snapshot['total_leads']} leads",
-                    "importance": 2,
-                }
-            ).execute()
+            _get_supabase().table("brain_events").insert({
+                "event_type": "crm_snapshot",
+                "category": "automation",
+                "data": snapshot,
+                "summary": f"CRM snapshot: {snapshot['total_leads']} leads",
+                "importance": 2,
+            }).execute()
 
             await bus.emit("scheduler.crm_snapshot.completed", snapshot)
             log.info(f"[Job:CRM Snapshot] Complete — {snapshot['total_leads']} leads")
@@ -196,7 +186,7 @@ class AutoScheduler:
             supabase = _get_supabase_client()
 
             # Get leads without scores or old scores
-            result = supabase.table("leads").select("*").is_("score", "null").limit(50).execute()
+            result = _get_supabase().table("leads").select("*").is_("score", "null").limit(50).execute()
 
             if not result.data:
                 log.info("[Job:Score Leads] No new leads to score")
@@ -209,7 +199,7 @@ class AutoScheduler:
                     score = await self._calculate_lead_score(lead)
 
                     # Update lead
-                    supabase.table("leads").update({"score": score}).eq("id", lead["id"]).execute()
+                    _get_supabase().table("leads").update({"score": score}).eq("id", lead["id"]).execute()
                     scored_count += 1
 
                 except Exception as lead_error:
@@ -231,7 +221,8 @@ class AutoScheduler:
             supabase = _get_supabase_client()
 
             # Get recent events
-            events = supabase.table("brain_events").select("*").order("created_at", desc=True).limit(100).execute()
+            events = _get_supabase().table("brain_events").select("*")\
+                .order("created_at", desc=True).limit(100).execute()
 
             if not events.data:
                 log.info("[Job:Pattern Analysis] No events to analyze")
@@ -251,13 +242,11 @@ class AutoScheduler:
             }
 
             # Store analysis
-            supabase.table("brain_analyses").insert(
-                {
-                    "subject": "pattern_analysis",
-                    "analysis": str(analysis),
-                    "metrics": analysis,
-                }
-            ).execute()
+            _get_supabase().table("brain_analyses").insert({
+                "subject": "pattern_analysis",
+                "analysis": str(analysis),
+                "metrics": analysis,
+            }).execute()
 
             await bus.emit("scheduler.pattern_analysis.completed", analysis)
             log.info(f"[Job:Pattern Analysis] Complete — {len(events.data)} events analyzed")
@@ -274,9 +263,9 @@ class AutoScheduler:
             supabase = _get_supabase_client()
 
             # Get system metrics
-            facts_count = supabase.table("brain_facts").select("id", count="exact").execute().count or 0
-            events_count = supabase.table("brain_events").select("id", count="exact").execute().count or 0
-            decisions_count = supabase.table("brain_decisions").select("id", count="exact").execute().count or 0
+            facts_count = _get_supabase().table("brain_facts").select("id", count="exact").execute().count or 0
+            events_count = _get_supabase().table("brain_events").select("id", count="exact").execute().count or 0
+            decisions_count = _get_supabase().table("brain_decisions").select("id", count="exact").execute().count or 0
 
             # Calculate health score (simple heuristic)
             health_score = min(100, (facts_count * 0.3 + events_count * 0.01 + decisions_count * 0.5))
@@ -291,13 +280,11 @@ class AutoScheduler:
             }
 
             # Store self-analysis
-            supabase.table("brain_analyses").insert(
-                {
-                    "subject": "self_analysis",
-                    "analysis": str(analysis),
-                    "metrics": analysis,
-                }
-            ).execute()
+            _get_supabase().table("brain_analyses").insert({
+                "subject": "self_analysis",
+                "analysis": str(analysis),
+                "metrics": analysis,
+            }).execute()
 
             await bus.emit("scheduler.self_analysis.completed", analysis)
             log.info(f"[Job:Self Analysis] Complete — Health score: {health_score}")
@@ -318,17 +305,15 @@ class AutoScheduler:
 
             yesterday = datetime.utcnow() - timedelta(days=1)
 
-            events = (
-                supabase.table("brain_events")
-                .select("*", count="exact")
-                .gte("created_at", yesterday.isoformat())
+            events = _get_supabase().table("brain_events")\
+                .select("*", count="exact")\
+                .gte("created_at", yesterday.isoformat())\
                 .execute()
             )
 
-            decisions = (
-                supabase.table("brain_decisions")
-                .select("*", count="exact")
-                .gte("created_at", yesterday.isoformat())
+            decisions = _get_supabase().table("brain_decisions")\
+                .select("*", count="exact")\
+                .gte("created_at", yesterday.isoformat())\
                 .execute()
             )
 
@@ -340,15 +325,13 @@ class AutoScheduler:
             }
 
             # Store briefing
-            supabase.table("brain_events").insert(
-                {
-                    "event_type": "daily_briefing",
-                    "category": "automation",
-                    "data": briefing,
-                    "summary": briefing["summary"],
-                    "importance": 3,
-                }
-            ).execute()
+            _get_supabase().table("brain_events").insert({
+                "event_type": "daily_briefing",
+                "category": "automation",
+                "data": briefing,
+                "summary": briefing["summary"],
+                "importance": 3,
+            }).execute()
 
             await bus.emit("scheduler.daily_briefing.completed", briefing)
             log.info(f"[Job:Daily Briefing] Complete — {briefing['summary']}")
@@ -369,7 +352,10 @@ class AutoScheduler:
             supabase = _get_supabase_client()
 
             # Get low-confidence facts
-            low_confidence = supabase.table("brain_facts").select("*").lt("confidence", 0.3).execute()
+            low_confidence = _get_supabase().table("brain_facts")\
+                .select("*")\
+                .lt("confidence", 0.3)\
+                .execute()
 
             if low_confidence.data:
                 # Archive low-confidence facts
@@ -377,9 +363,10 @@ class AutoScheduler:
                 for fact in low_confidence.data:
                     # Move to archive or delete
                     # For now, just mark them
-                    supabase.table("brain_facts").update({"source": "archived_low_confidence"}).eq(
-                        "id", fact["id"]
-                    ).execute()
+                    _get_supabase().table("brain_facts")\
+                        .update({"source": "archived_low_confidence"})\
+                        .eq("id", fact["id"])\
+                        .execute()
                     archived_count += 1
 
                 log.info(f"[Job:Memory Consolidation] Archived {archived_count} low-confidence facts")

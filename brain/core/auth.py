@@ -17,6 +17,14 @@ from core.database import get_database_client
 
 log = get_logger("auth")
 
+_supabase_client: Optional[Client] = None
+
+def _get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    return _supabase_client
+
 bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 brain_key_header = APIKeyHeader(name="X-Brain-Key", auto_error=False)
@@ -68,35 +76,25 @@ def generate_api_key(org_id: str, name: str, scopes: list[str]) -> tuple[str, st
     plain = "ml_" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plain.encode()).hexdigest()
     prefix = plain[:10]
-
-    # Use database client instead of direct Supabase
-    db = get_database_client()
-    db.insert(
-        table="api_keys",
-        data={
-            "org_id": org_id,
-            "name": name,
-            "key_hash": key_hash,
-            "key_prefix": prefix,
-            "scopes": scopes,
-            "created_by": "admin",
-        },
-        tenant_id=org_id,
-    )
+    _get_supabase().table("api_keys").insert({
+        "org_id": org_id,
+        "name": name,
+        "key_hash": key_hash,
+        "key_prefix": prefix,
+        "scopes": scopes,
+        "created_by": "admin",
+    }).execute()
     return plain, key_hash
 
 
 def verify_api_key(plain_key: str) -> Optional[dict]:
     key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
-
-    # Use database client instead of direct Supabase
-    db = get_database_client()
-    result = db.select(table="api_keys", filters={"key_hash": key_hash, "is_active": True})
-
-    if result.success and result.data:
+    result = _get_supabase().table("api_keys").select("*")\
+        .eq("key_hash", key_hash).eq("is_active", True).execute()
+    if result.data:
         key = result.data[0]
-        # Update last_used
-        db.update(table="api_keys", data={"last_used_at": datetime.utcnow().isoformat()}, filters={"id": key["id"]})
+        _get_supabase().table("api_keys").update({"last_used_at": datetime.utcnow().isoformat()})\
+            .eq("id", key["id"]).execute()
         return key
     return None
 
