@@ -4,9 +4,10 @@
   "description": "MagicLamp AI Brain — Desktop Client",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"npx wait-on http://localhost:5173 && electron .\"",
+    "dev": "cross-env NODE_ENV=development concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"npx wait-on http://localhost:5173 && electron .\"",
     "dev:vite": "vite",
-    "dev:electron": "electron .",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "start": "cross-env NODE_ENV=production electron .",
     "build": "vite build && electron-builder",
     "build:ui": "vite build",
     "preview": "vite preview"
@@ -22,6 +23,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
     "electron": "^31.0.2",
     "electron-builder": "^24.13.3",
     "postcss": "^8.4.38",

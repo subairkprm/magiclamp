@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 const { startBackend, stopBackend, getStatus } = require('./backend-manager')
 
-const isDev = !app.isPackaged
+const isDev = process.env.NODE_ENV === 'development'
 
 function createWindow() {
   const win = new BrowserWindow({
