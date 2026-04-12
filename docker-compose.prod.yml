@@ -1,0 +1,21 @@
+version: "3.9"
+
+# Production-only overrides for VPS deployment
+services:
+  brain:
+    environment:
+      ENV: production
+      BRAIN_AUTO_MODE: ${BRAIN_AUTO_MODE:-true}
+
+  agent:
+    environment:
+      ENV: production
+
+  n8n:
+    environment:
+      WEBHOOK_URL: http://${SERVER_HOST:-localhost}/n8n/
+
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"

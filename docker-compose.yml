@@ -1,9 +1,8 @@
 version: "3.9"
 
 # =============================================================
-#  MAGICLAMP — Complete Production Stack
-#  Includes: Ollama, Brain, Agent, N8N, UI, Nginx, Coolify
-#  Start everything: docker compose up -d
+#  MAGICLAMP — Base Stack (shared between local and production)
+#  Override with docker-compose.local.yml or docker-compose.prod.yml
 # =============================================================
 
 x-common-env: &common-env
@@ -13,7 +12,7 @@ x-common-env: &common-env
   OLLAMA_MODEL:           ${OLLAMA_MODEL:-qwen2.5:7b}
   TELEGRAM_BOT_TOKEN:     ${TELEGRAM_BOT_TOKEN:-}
   TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
-  ENV:                    production
+  ENV:                    ${ENV:-production}
 
 x-restart: &restart
   restart: unless-stopped
@@ -32,8 +31,7 @@ services:
     image: ollama/ollama:latest
     container_name: ml_ollama
     <<: [*restart, *logging]
-    ports:
-      - "11434:11434"
+    expose: ["11434"]
     volumes:
       - ./data/ollama:/root/.ollama
     environment:
@@ -61,8 +59,7 @@ services:
       dockerfile: Dockerfile
     container_name: ml_brain
     <<: [*restart, *logging]
-    ports:
-      - "9000:9000"
+    expose: ["9000"]
     environment:
       <<: *common-env
       JWT_SECRET:      ${JWT_SECRET}
@@ -95,8 +92,7 @@ services:
       dockerfile: Dockerfile
     container_name: ml_agent
     <<: [*restart, *logging]
-    ports:
-      - "8000:8000"
+    expose: ["8000"]
     environment:
       <<: *common-env
       SUPABASE_KEY: ${SUPABASE_SERVICE_KEY}
@@ -120,8 +116,7 @@ services:
     image: n8nio/n8n:latest
     container_name: ml_n8n
     <<: [*restart, *logging]
-    ports:
-      - "5678:5678"
+    expose: ["5678"]
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
@@ -146,7 +141,7 @@ services:
         limits:
           memory: 512M
 
-  # ── 5. UI — MagicLamp Frontend ─────────────────────────────
+  # ── 5. UI — Static Frontend ────────────────────────────────
   ui:
     image: nginx:alpine
     container_name: ml_ui
@@ -167,9 +162,7 @@ services:
     image: nginx:alpine
     container_name: ml_nginx
     <<: [*restart, *logging]
-    ports:
-      - "80:80"
-      - "443:443"
+    expose: ["80", "443"]
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro

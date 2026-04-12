@@ -429,6 +429,10 @@ Every mutating operation (POST/PUT/PATCH/DELETE) is automatically logged with:
 
 ## 🚢 Deployment
 
+For environment-specific steps:
+- Local development: see `DEPLOY_LOCAL.md` (`docker compose -f docker-compose.yml -f docker-compose.local.yml up -d`)
+- Production VPS: see `DEPLOY_PROD.md` (`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`)
+
 ### Production Checklist
 
 - [ ] Set strong, unique secrets in `.env`

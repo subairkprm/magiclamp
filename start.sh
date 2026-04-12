@@ -62,6 +62,16 @@ else
   log "Docker Compose already installed"
 fi
 
+if docker compose version &>/dev/null; then
+  DC="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  DC="docker-compose"
+else
+  err "Docker Compose not available"
+fi
+
+COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+
 # ── Step 3: Firewall ─────────────────────────────────────────
 title "Step 3/9 — Firewall Configuration"
 ufw allow 22/tcp    comment "SSH"
@@ -130,21 +140,21 @@ log "Data directories created at ./data/"
 # ── Step 7: Build and Start MagicLamp ────────────────────────
 title "Step 7/9 — Building MagicLamp"
 info "Pulling base images..."
-docker-compose pull ollama n8n 2>&1 | grep -E "Pulling|pulled|up to date" || true
+$DC $COMPOSE_FILES pull ollama n8n 2>&1 | grep -E "Pulling|pulled|up to date" || true
 
 info "Building Brain and Agent (first time: ~5 min)..."
-docker-compose build --parallel brain agent
+$DC $COMPOSE_FILES build --parallel brain agent
 
 info "Starting all services..."
-docker-compose up -d
+$DC $COMPOSE_FILES up -d
 
 # ── Step 8: Wait for Health ───────────────────────────────────
 title "Step 8/9 — Waiting for Services"
 info "Waiting for services to pass health checks..."
 TRIES=0; MAX=40
 while [ $TRIES -lt $MAX ]; do
-  HEALTHY=$(docker-compose ps 2>/dev/null | grep -c "healthy" || echo 0)
-  TOTAL=$(docker-compose ps 2>/dev/null | grep -c "Up" || echo 0)
+  HEALTHY=$($DC $COMPOSE_FILES ps 2>/dev/null | grep -c "healthy" || echo 0)
+  TOTAL=$($DC $COMPOSE_FILES ps 2>/dev/null | grep -c "Up" || echo 0)
   echo -ne "\r  Containers healthy: ${HEALTHY}/${TOTAL} (${TRIES}/${MAX} checks)"
   [ $HEALTHY -ge 2 ] && break
   sleep 5; TRIES=$((TRIES+1))
