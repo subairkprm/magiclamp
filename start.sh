@@ -1,8 +1,10 @@
 #!/bin/bash
 # =============================================================
-#  MAGICLAMP — Complete VPS Setup + Coolify Integration
-#  One command deploys the entire platform including web panel
-#  Usage: bash start.sh
+#  MAGICLAMP — Optional VPS Bootstrap
+#  Primary prod path: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#  This script is an optional helper; Coolify install is opt-in.
+#  Usage: INSTALL_COOLIFY=true bash start.sh   # to install Coolify
+#         bash start.sh                       # to skip Coolify
 #  Run as root on Ubuntu 22.04
 # =============================================================
 
@@ -121,14 +123,19 @@ sed -i "s|^SERVER_HOST=.*|SERVER_HOST=${VPS_IP}|" .env 2>/dev/null || echo "SERV
 log "Environment configured"
 
 # ── Step 5: Install Coolify ──────────────────────────────────
-title "Step 5/9 — Installing Coolify (Web Panel)"
-if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "coolify"; then
-  info "Installing Coolify — this takes 2-3 minutes..."
-  curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
-  sleep 5
-  log "Coolify installed → http://${VPS_IP}:8000"
+INSTALL_COOLIFY=${INSTALL_COOLIFY:-false}
+title "Step 5/9 — Coolify (Optional)"
+if [ "$INSTALL_COOLIFY" = "true" ]; then
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "coolify"; then
+    info "Installing Coolify — this takes 2-3 minutes..."
+    curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+    sleep 5
+    log "Coolify installed → http://${VPS_IP}:8000"
+  else
+    log "Coolify already running"
+  fi
 else
-  log "Coolify already running"
+  log "Skipping Coolify install (set INSTALL_COOLIFY=true to enable)"
 fi
 
 # ── Step 6: Create Data Directories ──────────────────────────
