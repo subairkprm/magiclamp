@@ -1,0 +1,54 @@
+name: "🐛 Bug Report"
+description: Report a bug or regression.
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the issue.
+      placeholder: I expected X, but Y happened.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Be as specific as possible. Include sample data if relevant.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you thought would happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened (include screenshots/logs if helpful).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version / git commit
+      placeholder: e.g., v0.4.2 or commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: e.g., local dev (macOS 14), Docker, VPS prod, Python 3.12
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else we should know? Links, hypotheses, metrics, etc.
