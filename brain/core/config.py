@@ -8,6 +8,7 @@ from pydantic import Field, model_validator
 from functools import lru_cache
 from typing import Optional
 
+
 class Settings(BaseSettings):
     APP_NAME:        str = "MagicLamp"
     APP_VERSION:     str = "1.0.0"
@@ -23,8 +24,8 @@ class Settings(BaseSettings):
     JWT_SECRET:      str = Field(..., alias="JWT_SECRET")
     JWT_ALGORITHM:   str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS:   int = 30
-    BRAIN_API_KEY:   str = Field(..., alias="BRAIN_SECRET")
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    BRAIN_API_KEY: str = Field(default="", alias="BRAIN_SECRET")
 
     TELEGRAM_TOKEN:  Optional[str] = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     TELEGRAM_ADMIN:  Optional[str] = Field(default=None, alias="TELEGRAM_ADMIN_CHAT_ID")
@@ -59,8 +60,10 @@ class Settings(BaseSettings):
         populate_by_name = True
         extra = "ignore"
 
+
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+
 
 settings = get_settings()

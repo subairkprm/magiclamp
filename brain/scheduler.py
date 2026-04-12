@@ -3,6 +3,7 @@ MagicLamp — Auto Scheduler
 Background job scheduler for autonomous brain operations.
 Runs periodic tasks: CRM snapshots, lead scoring, pattern analysis, briefings.
 """
+
 import asyncio
 from typing import Callable, Dict, List, Optional
 from datetime import datetime, time
@@ -16,7 +17,7 @@ from core.config import settings
 from core.logger import get_logger
 from core.bus import bus
 from core.circuit import ollama_circuit
-from supabase import create_client
+from supabase import create_client, Client
 
 log = get_logger("scheduler")
 
@@ -72,18 +73,12 @@ class AutoScheduler:
 
         # Every 6 hours: Take CRM snapshot
         self._add_job(
-            "crm_snapshot",
-            self.job_crm_snapshot,
-            CronTrigger(hour="*/6", minute=0),
-            "Take CRM snapshot every 6 hours"
+            "crm_snapshot", self.job_crm_snapshot, CronTrigger(hour="*/6", minute=0), "Take CRM snapshot every 6 hours"
         )
 
         # Every 2 hours: Score new leads
         self._add_job(
-            "score_leads",
-            self.job_score_new_leads,
-            IntervalTrigger(hours=2),
-            "Score new leads every 2 hours"
+            "score_leads", self.job_score_new_leads, IntervalTrigger(hours=2), "Score new leads every 2 hours"
         )
 
         # Daily at 3 AM: Pattern analysis
@@ -91,23 +86,17 @@ class AutoScheduler:
             "pattern_analysis",
             self.job_pattern_analysis,
             CronTrigger(hour=3, minute=0),
-            "Analyze patterns daily at 3 AM"
+            "Analyze patterns daily at 3 AM",
         )
 
         # Daily at 4 AM: Self analysis
         self._add_job(
-            "self_analysis",
-            self.job_self_analysis,
-            CronTrigger(hour=4, minute=0),
-            "Self-analysis daily at 4 AM"
+            "self_analysis", self.job_self_analysis, CronTrigger(hour=4, minute=0), "Self-analysis daily at 4 AM"
         )
 
         # Daily at 8 AM: Daily briefing
         self._add_job(
-            "daily_briefing",
-            self.job_daily_briefing,
-            CronTrigger(hour=8, minute=0),
-            "Send daily briefing at 8 AM"
+            "daily_briefing", self.job_daily_briefing, CronTrigger(hour=8, minute=0), "Send daily briefing at 8 AM"
         )
 
         # Every 12 hours: Memory consolidation
@@ -115,7 +104,7 @@ class AutoScheduler:
             "memory_consolidation",
             self.job_memory_consolidation,
             IntervalTrigger(hours=12),
-            "Consolidate memories every 12 hours"
+            "Consolidate memories every 12 hours",
         )
 
     def _add_job(self, job_id: str, func: Callable, trigger, description: str):
@@ -128,7 +117,7 @@ class AutoScheduler:
                 name=description,
                 replace_existing=True,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=300  # 5 minutes grace for missed jobs
+                misfire_grace_time=300,  # 5 minutes grace for missed jobs
             )
             self._jobs[job_id] = job
             log.info(f"[Scheduler] Registered: {job_id} — {description}")
@@ -139,12 +128,14 @@ class AutoScheduler:
         """Get list of all registered jobs with status"""
         jobs_list = []
         for job_id, job in self._jobs.items():
-            jobs_list.append({
-                "id": job_id,
-                "name": job.name,
-                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
-                "trigger": str(job.trigger),
-            })
+            jobs_list.append(
+                {
+                    "id": job_id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                    "trigger": str(job.trigger),
+                }
+            )
         return jobs_list
 
     # ── JOB IMPLEMENTATIONS ──────────────────────────────────────
@@ -153,6 +144,9 @@ class AutoScheduler:
         """Take snapshot of CRM state for training data"""
         try:
             log.info("[Job:CRM Snapshot] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get lead counts by status
             leads = _get_supabase().table("leads").select("id,status,score", count="exact").execute()
@@ -164,7 +158,7 @@ class AutoScheduler:
                 "timestamp": datetime.utcnow().isoformat(),
                 "total_leads": leads.count or 0,
                 "teams_count": teams.count or 0,
-                "snapshot_type": "crm_overview"
+                "snapshot_type": "crm_overview",
             }
 
             # Store as brain event
@@ -187,6 +181,9 @@ class AutoScheduler:
         """Score leads that haven't been scored yet"""
         try:
             log.info("[Job:Score Leads] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get leads without scores or old scores
             result = _get_supabase().table("leads").select("*").is_("score", "null").limit(50).execute()
@@ -220,6 +217,9 @@ class AutoScheduler:
         try:
             log.info("[Job:Pattern Analysis] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get recent events
             events = _get_supabase().table("brain_events").select("*")\
                 .order("created_at", desc=True).limit(100).execute()
@@ -238,7 +238,7 @@ class AutoScheduler:
                 "timestamp": datetime.utcnow().isoformat(),
                 "events_analyzed": len(events.data),
                 "event_type_distribution": event_types,
-                "most_common_event": max(event_types.items(), key=lambda x: x[1])[0] if event_types else None
+                "most_common_event": max(event_types.items(), key=lambda x: x[1])[0] if event_types else None,
             }
 
             # Store analysis
@@ -259,6 +259,9 @@ class AutoScheduler:
         try:
             log.info("[Job:Self Analysis] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get system metrics
             facts_count = _get_supabase().table("brain_facts").select("id", count="exact").execute().count or 0
             events_count = _get_supabase().table("brain_events").select("id", count="exact").execute().count or 0
@@ -273,7 +276,7 @@ class AutoScheduler:
                 "facts_count": facts_count,
                 "events_count": events_count,
                 "decisions_count": decisions_count,
-                "status": "healthy" if health_score > 50 else "degraded"
+                "status": "healthy" if health_score > 50 else "degraded",
             }
 
             # Store self-analysis
@@ -294,25 +297,31 @@ class AutoScheduler:
         try:
             log.info("[Job:Daily Briefing] Starting...")
 
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
+
             # Get yesterday's activity
             from datetime import timedelta
+
             yesterday = datetime.utcnow() - timedelta(days=1)
 
             events = _get_supabase().table("brain_events")\
                 .select("*", count="exact")\
                 .gte("created_at", yesterday.isoformat())\
                 .execute()
+            )
 
             decisions = _get_supabase().table("brain_decisions")\
                 .select("*", count="exact")\
                 .gte("created_at", yesterday.isoformat())\
                 .execute()
+            )
 
             briefing = {
                 "date": datetime.utcnow().date().isoformat(),
                 "events_yesterday": events.count or 0,
                 "decisions_made": decisions.count or 0,
-                "summary": f"Yesterday: {events.count or 0} events, {decisions.count or 0} decisions"
+                "summary": f"Yesterday: {events.count or 0} events, {decisions.count or 0} decisions",
             }
 
             # Store briefing
@@ -338,6 +347,9 @@ class AutoScheduler:
         """Consolidate and optimize memory storage"""
         try:
             log.info("[Job:Memory Consolidation] Starting...")
+
+            # Get Supabase client (lazy initialization)
+            supabase = _get_supabase_client()
 
             # Get low-confidence facts
             low_confidence = _get_supabase().table("brain_facts")\
@@ -405,11 +417,7 @@ class AutoScheduler:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(
                     f"https://api.telegram.org/bot{settings.TELEGRAM_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": settings.TELEGRAM_ADMIN,
-                        "text": message,
-                        "parse_mode": "HTML"
-                    }
+                    json={"chat_id": settings.TELEGRAM_ADMIN, "text": message, "parse_mode": "HTML"},
                 )
             log.info("[Scheduler] Telegram briefing sent")
         except Exception as e:

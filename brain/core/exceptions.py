@@ -2,6 +2,7 @@
 MagicLamp Custom Exception Hierarchy
 Provides structured error handling with proper HTTP status codes and clean JSON responses.
 """
+
 from typing import Optional, Dict, Any
 
 
@@ -13,7 +14,7 @@ class MagicLampException(Exception):
         message: str,
         status_code: int = 500,
         error_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+        details: Optional[Dict[str, Any]] = None,
     ):
         self.message = message
         self.status_code = status_code
@@ -38,12 +39,7 @@ class BrainReasoningError(MagicLampException):
     """Raised when AI reasoning operations fail."""
 
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=message,
-            status_code=503,
-            error_code="BRAIN_REASONING_ERROR",
-            details=details
-        )
+        super().__init__(message=message, status_code=503, error_code="BRAIN_REASONING_ERROR", details=details)
 
 
 class AIEngineUnavailableError(BrainReasoningError):
@@ -67,12 +63,7 @@ class DatabaseError(MagicLampException):
     """Raised when database operations fail."""
 
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=message,
-            status_code=500,
-            error_code="DATABASE_ERROR",
-            details=details
-        )
+        super().__init__(message=message, status_code=500, error_code="DATABASE_ERROR", details=details)
 
 
 class RecordNotFoundError(DatabaseError):
@@ -80,8 +71,7 @@ class RecordNotFoundError(DatabaseError):
 
     def __init__(self, resource: str, identifier: str):
         super().__init__(
-            message=f"{resource} not found: {identifier}",
-            details={"resource": resource, "identifier": identifier}
+            message=f"{resource} not found: {identifier}", details={"resource": resource, "identifier": identifier}
         )
         self.status_code = 404
         self.error_code = "RECORD_NOT_FOUND"
@@ -93,7 +83,7 @@ class DuplicateRecordError(DatabaseError):
     def __init__(self, resource: str, field: str, value: str):
         super().__init__(
             message=f"{resource} already exists with {field}={value}",
-            details={"resource": resource, "field": field, "value": value}
+            details={"resource": resource, "field": field, "value": value},
         )
         self.status_code = 409
         self.error_code = "DUPLICATE_RECORD"
@@ -104,22 +94,14 @@ class AuthenticationError(MagicLampException):
     """Raised when authentication fails."""
 
     def __init__(self, message: str = "Authentication failed"):
-        super().__init__(
-            message=message,
-            status_code=401,
-            error_code="AUTHENTICATION_FAILED"
-        )
+        super().__init__(message=message, status_code=401, error_code="AUTHENTICATION_FAILED")
 
 
 class AuthorizationError(MagicLampException):
     """Raised when user lacks required permissions."""
 
     def __init__(self, message: str = "Insufficient permissions"):
-        super().__init__(
-            message=message,
-            status_code=403,
-            error_code="AUTHORIZATION_FAILED"
-        )
+        super().__init__(message=message, status_code=403, error_code="AUTHORIZATION_FAILED")
 
 
 # ── Validation Exceptions ──────────────────────────
@@ -129,12 +111,7 @@ class ValidationError(MagicLampException):
     def __init__(self, message: str, field: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         if field and not details:
             details = {"field": field}
-        super().__init__(
-            message=message,
-            status_code=400,
-            error_code="VALIDATION_ERROR",
-            details=details
-        )
+        super().__init__(message=message, status_code=400, error_code="VALIDATION_ERROR", details=details)
 
 
 # ── Integration Exceptions ─────────────────────────
@@ -149,7 +126,7 @@ class IntegrationError(MagicLampException):
             message=f"{service} integration error: {message}",
             status_code=502,
             error_code="INTEGRATION_ERROR",
-            details=details
+            details=details,
         )
 
 
@@ -157,11 +134,7 @@ class WebhookError(IntegrationError):
     """Raised when webhook delivery fails."""
 
     def __init__(self, webhook_url: str, message: str):
-        super().__init__(
-            service="webhook",
-            message=message,
-            details={"webhook_url": webhook_url}
-        )
+        super().__init__(service="webhook", message=message, details={"webhook_url": webhook_url})
         self.error_code = "WEBHOOK_ERROR"
 
 
@@ -174,7 +147,7 @@ class TaskNotFoundError(MagicLampException):
             message=f"Task not found: {task_id}",
             status_code=404,
             error_code="TASK_NOT_FOUND",
-            details={"task_id": task_id}
+            details={"task_id": task_id},
         )
 
 
@@ -189,5 +162,5 @@ class TaskExecutionError(MagicLampException):
             message=f"Task execution failed: {message}",
             status_code=500,
             error_code="TASK_EXECUTION_ERROR",
-            details=details
+            details=details,
         )

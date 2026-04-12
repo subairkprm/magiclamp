@@ -2,6 +2,7 @@
 UserRepository - Repository pattern for User entity operations.
 Provides clean interface between database and API for user-related queries.
 """
+
 from typing import Optional, List
 from core.database import DatabaseClient, QueryResult
 from core.models import User
@@ -40,11 +41,7 @@ class UserRepository:
         """
         try:
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                filters={"email": email},
-                limit=1
+                table=self.table, columns="*", tenant_id=tenant_id, filters={"email": email}, limit=1
             )
 
             if not result.success:
@@ -77,11 +74,7 @@ class UserRepository:
         """
         try:
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                filters={"id": user_id},
-                limit=1
+                table=self.table, columns="*", tenant_id=tenant_id, filters={"id": user_id}, limit=1
             )
 
             if not result.success:
@@ -101,13 +94,7 @@ class UserRepository:
             raise DatabaseError(f"Error retrieving user by id: {str(e)}")
 
     def create_user(
-        self,
-        name: str,
-        email: str,
-        password_hash: str,
-        tenant_id: str,
-        role: str = "user",
-        is_active: bool = True
+        self, name: str, email: str, password_hash: str, tenant_id: str, role: str = "user", is_active: bool = True
     ) -> User:
         """
         Create a new user within a tenant.
@@ -131,11 +118,7 @@ class UserRepository:
             # Check if user already exists
             existing = self.get_by_email(email=email, tenant_id=tenant_id)
             if existing:
-                raise DuplicateRecordError(
-                    resource="User",
-                    field="email",
-                    value=email
-                )
+                raise DuplicateRecordError(resource="User", field="email", value=email)
 
             # Create user data
             user_data = {
@@ -147,11 +130,7 @@ class UserRepository:
             }
 
             # Insert into database
-            result: QueryResult = self.db.insert(
-                table=self.table,
-                data=user_data,
-                tenant_id=tenant_id
-            )
+            result: QueryResult = self.db.insert(table=self.table, data=user_data, tenant_id=tenant_id)
 
             if not result.success:
                 raise DatabaseError(f"Failed to create user: {result.error}")
@@ -184,11 +163,7 @@ class UserRepository:
         """
         try:
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                order_by="created_at.desc",
-                limit=limit
+                table=self.table, columns="*", tenant_id=tenant_id, order_by="created_at.desc", limit=limit
             )
 
             if not result.success:
@@ -223,7 +198,7 @@ class UserRepository:
                 table=self.table,
                 data={"last_login": datetime.utcnow().isoformat()},
                 tenant_id=tenant_id,
-                filters={"id": user_id}
+                filters={"id": user_id},
             )
 
             if not result.success:
@@ -255,11 +230,7 @@ class UserRepository:
             DatabaseError: If database operation fails
         """
         try:
-            result: QueryResult = self.db.delete(
-                table=self.table,
-                tenant_id=tenant_id,
-                filters={"id": user_id}
-            )
+            result: QueryResult = self.db.delete(table=self.table, tenant_id=tenant_id, filters={"id": user_id})
 
             if not result.success:
                 raise DatabaseError(f"Failed to delete user: {result.error}")
