@@ -23,8 +23,8 @@ if not exist "desktop\node_modules" (
     exit /b 1
 )
 
-if not exist "brain\.env" (
-    echo %RED%  ✗ brain\.env not found.%RESET%
+if not exist ".env" (
+    echo %RED%  ✗ .env not found.%RESET%
     echo    Please run %YELLOW%setup.bat%RESET% first.
     echo.
     pause

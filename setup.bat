@@ -55,7 +55,7 @@ echo.
 echo %YELLOW%[3/5]%RESET% Installing Python backend dependencies...
 echo     (this may take a few minutes)
 echo.
-pip install -r brain\requirements.txt
+pip install -r "brain/requirements.txt"
 if %errorlevel% neq 0 (
     echo.
     echo %RED%  ✗ pip install failed. See errors above.%RESET%
@@ -91,33 +91,32 @@ echo %GREEN%  ✓ Desktop dependencies installed%RESET%
 echo.
 echo %YELLOW%[5/5]%RESET% Setting up environment...
 
-if not exist "brain\.env" (
-    if exist "brain\.env.example" (
-        copy "brain\.env.example" "brain\.env" >nul
-        echo %GREEN%  ✓ Created brain\.env from .env.example%RESET%
+if not exist ".env" (
+    if exist ".env.example" (
+        copy ".env.example" ".env" >nul
+        echo %GREEN%  ✓ Created .env from .env.example%RESET%
     ) else (
         echo %YELLOW%  ! No .env.example found — creating minimal .env%RESET%
-        :: Generate a random secret using Python
         for /f %%i in ('python -c "import secrets; print(secrets.token_hex(32))"') do set JWT_SECRET=%%i
         for /f %%i in ('python -c "import secrets; print(secrets.token_hex(32))"') do set BRAIN_SECRET=%%i
+        for /f %%i in ('python -c "import secrets; print(secrets.token_hex(32))"') do set N8N_KEY=%%i
         (
             echo SUPABASE_URL=
             echo SUPABASE_SERVICE_KEY=
             echo JWT_SECRET=!JWT_SECRET!
             echo BRAIN_SECRET=!BRAIN_SECRET!
-            echo OLLAMA_URL=http://localhost:11434
             echo OLLAMA_MODEL=qwen2.5:7b
             echo BRAIN_AUTO_MODE=false
+            echo N8N_ENCRYPTION_KEY=!N8N_KEY!
             echo CORS_ORIGINS=http://localhost:5173,app://localhost
-        ) > brain\.env
-        echo %GREEN%  ✓ Created brain\.env with generated secrets%RESET%
+        ) > .env
+        echo %GREEN%  ✓ Created .env with generated secrets%RESET%
     )
     echo.
-    echo %YELLOW%  ⚠  IMPORTANT: Open brain\.env and fill in:%RESET%
-    echo     - SUPABASE_URL
+    echo %YELLOW%  ⚠  IMPORTANT: Open .env and fill in:%RESET%
     echo     - SUPABASE_SERVICE_KEY
 ) else (
-    echo %GREEN%  ✓ brain\.env already exists — skipping%RESET%
+    echo %GREEN%  ✓ .env already exists — skipping%RESET%
 )
 
 :: ─────────────────────────────────────────────────────────────────────────────
