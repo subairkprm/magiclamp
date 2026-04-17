@@ -309,13 +309,11 @@ class AutoScheduler:
                 .select("*", count="exact")\
                 .gte("created_at", yesterday.isoformat())\
                 .execute()
-            )
 
             decisions = _get_supabase().table("brain_decisions")\
                 .select("*", count="exact")\
                 .gte("created_at", yesterday.isoformat())\
                 .execute()
-            )
 
             briefing = {
                 "date": datetime.utcnow().date().isoformat(),
