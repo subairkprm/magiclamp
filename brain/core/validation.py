@@ -3,7 +3,7 @@ MagicLamp — Input Validation Models
 Comprehensive Pydantic models for API input validation and security.
 """
 
-from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, constr, field_validator
 from typing import Optional, List, Dict, Any, Literal, Annotated
 import re
 import socket

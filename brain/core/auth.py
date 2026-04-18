@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from jose import JWTError, jwt
+from supabase import Client, create_client
 from core.config import settings
 from core.logger import get_logger
 from core.database import get_database_client
