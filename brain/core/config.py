@@ -42,6 +42,17 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
 
+    # ── RAG / Vector memory ─────────────────────
+    RAG_ENABLED:         bool = Field(default=False, alias="RAG_ENABLED")
+    EMBEDDING_PROVIDER:  str = Field(default="local", alias="EMBEDDING_PROVIDER")  # local | ollama
+    EMBEDDING_MODEL:     str = Field(default="all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
+    EMBEDDING_DIM:       int = Field(default=384, alias="EMBEDDING_DIM")
+    VECTOR_STORE:        str = Field(default="chroma", alias="VECTOR_STORE")  # chroma | memory
+    VECTOR_STORE_PATH:   Optional[str] = Field(default=None, alias="VECTOR_STORE_PATH")
+    VECTOR_COLLECTION:   str = Field(default="brain_facts", alias="VECTOR_COLLECTION")
+    RAG_TOP_K:           int = Field(default=5, alias="RAG_TOP_K")
+    RAG_MIN_SIMILARITY:  float = Field(default=0.0, alias="RAG_MIN_SIMILARITY")
+
     @model_validator(mode="before")
     @classmethod
     def resolve_supabase_key(cls, values):

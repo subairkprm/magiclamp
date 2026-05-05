@@ -302,18 +302,60 @@ Lead: {json.dumps(lead)}"""
 
 
 async def _process_reason_ask(task_id: str, question: str, org_id: Optional[str]):
-    """Background task to process question reasoning."""
+    """Background task to process question reasoning.
+
+    When ``settings.RAG_ENABLED`` is true, retrieves the top-k semantically
+    relevant facts via :meth:`FactRepository.semantic_search` and presents
+    them to the LLM as a numbered, cited context block. Falls back to the
+    legacy "recent facts" path when RAG is disabled or returns nothing.
+    """
     try:
-        # Get facts using repository
+        retrieved_facts: List[Dict[str, Any]] = []
+        retrieval_mode = "none"
+
         if org_id:
             db = get_database_client()
             fact_repo = FactRepository(db)
-            facts = _get_cached_facts(tenant_id=org_id, fact_repo=fact_repo)
-        else:
-            facts = []
 
-        fact_ctx = "\n".join([f"- {f['key']}: {str(f['value'])[:80]}" for f in facts])
-        prompt = f"Answer using your knowledge and these facts:\n{fact_ctx}\n\nQuestion: {question}"
+            if settings.RAG_ENABLED:
+                rag_facts = fact_repo.semantic_search(
+                    query=question,
+                    tenant_id=org_id,
+                    k=settings.RAG_TOP_K,
+                    min_score=settings.RAG_MIN_SIMILARITY,
+                )
+                if rag_facts:
+                    retrieved_facts = [{"key": f.key, "value": f.value} for f in rag_facts]
+                    retrieval_mode = "rag"
+                    log.info(
+                        f"reason_ask task={task_id} tenant={org_id} retrieval=rag "
+                        f"hits={len(retrieved_facts)} k={settings.RAG_TOP_K}"
+                    )
+
+            if not retrieved_facts:
+                retrieved_facts = _get_cached_facts(tenant_id=org_id, fact_repo=fact_repo)
+                retrieval_mode = "recent" if retrieved_facts else "none"
+                log.info(
+                    f"reason_ask task={task_id} tenant={org_id} retrieval={retrieval_mode} "
+                    f"hits={len(retrieved_facts)}"
+                )
+
+        # Build a structured, cited context block so answers are traceable.
+        if retrieved_facts:
+            ctx_lines = [
+                f"[#{i + 1}] {f['key']}: {str(f['value'])[:200]}"
+                for i, f in enumerate(retrieved_facts)
+            ]
+            fact_ctx = "\n".join(ctx_lines)
+            prompt = (
+                "Answer the question using your knowledge and the cited facts below. "
+                "When a fact supports your answer, reference it by its bracketed id "
+                "(e.g. [#1]).\n\n"
+                f"Facts:\n{fact_ctx}\n\nQuestion: {question}"
+            )
+        else:
+            prompt = f"Answer the question using your general knowledge.\n\nQuestion: {question}"
+
         answer = await _llm(prompt)
 
         # Store training data using DatabaseClient
@@ -326,11 +368,23 @@ async def _process_reason_ask(task_id: str, question: str, org_id: Optional[str]
                     "output": answer[:500],
                     "source": "api_ask",
                     "quality": 1.0,
+                    "metadata": {
+                        "retrieval_mode": retrieval_mode,
+                        "retrieved_keys": [f["key"] for f in retrieved_facts],
+                    },
                 },
                 tenant_id=org_id,
             )
 
-        result = {"question": question, "answer": answer}
+        result = {
+            "question": question,
+            "answer": answer,
+            "retrieval_mode": retrieval_mode,
+            "citations": [
+                {"id": i + 1, "key": f["key"]}
+                for i, f in enumerate(retrieved_facts)
+            ],
+        }
         _update_task_success(task_id, result)
     except Exception as e:
         log.error(f"Ask reasoning task {task_id} failed: {str(e)}")

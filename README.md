@@ -28,7 +28,7 @@ MagicLamp combines cutting-edge AI technology with robust enterprise architectur
 - **Supabase Backend**: Scalable PostgreSQL database with real-time capabilities
 - **N8N Automation**: Workflow automation and integration support
 - **Telegram Integration**: Daily briefings and notifications
-- **Vector Memory**: ChromaDB for semantic search and retrieval
+- **Vector Memory**: ChromaDB-backed semantic retrieval over `brain_facts`, gated by `RAG_ENABLED` (see [`docs/rag.md`](docs/rag.md))
 - **Training Data Export**: Automatic collection and export for model fine-tuning
 
 ---
