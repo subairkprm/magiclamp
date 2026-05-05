@@ -412,8 +412,20 @@ class FactRepository:
         for m in matches:
             key = (m.metadata or {}).get("key")
             if not key:
-                # id is "<tenant_id>::<key>"
-                key = m.id.split("::", 1)[1] if "::" in m.id else m.id
+                # id is "<tenant_id>::<key>" — fall back but warn so any
+                # schema drift between vector ids and metadata is visible.
+                if "::" in m.id:
+                    key = m.id.split("::", 1)[1]
+                    log.warning(
+                        f"semantic_search: vector entry {m.id} missing "
+                        "'key' metadata; recovered key from id"
+                    )
+                else:
+                    log.warning(
+                        f"semantic_search: vector entry {m.id} has no 'key' "
+                        "metadata and id is not in '<tenant>::<key>' form; skipping"
+                    )
+                    continue
             keys_in_order.append(key)
 
         # Bulk fetch from relational store, then reorder by vector relevance.

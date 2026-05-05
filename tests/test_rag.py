@@ -187,9 +187,28 @@ class TestVectorStore:
 
 
 # ── Tests: FactRepository dual-write ──────────────────────────────
+@pytest.fixture
+def rag_enabled():
+    """Patch ``repositories.fact.settings`` to enable RAG for a test."""
+    with patch("repositories.fact.settings") as s:
+        s.RAG_ENABLED = True
+        s.RAG_TOP_K = 5
+        s.RAG_MIN_SIMILARITY = 0.0
+        yield s
+
+
 @pytest.fixture(autouse=True)
-def _enable_rag():
-    """Force RAG on for the duration of repo-level tests."""
+def _scoped_rag_enabled(request):
+    """Enable RAG settings only for FactRepository-focused test classes.
+
+    ``TestVectorStore`` exercises the store directly and must not have the
+    repository settings patched in.
+    """
+    cls = request.node.cls
+    rag_classes = {"TestFactRepositoryDualWrite", "TestSemanticSearch", "TestReindexAll"}
+    if cls is None or cls.__name__ not in rag_classes:
+        yield
+        return
     with patch("repositories.fact.settings") as s:
         s.RAG_ENABLED = True
         s.RAG_TOP_K = 5
@@ -219,11 +238,11 @@ class TestFactRepositoryDualWrite:
 
     def test_save_succeeds_when_vector_upsert_fails(self, repo, db):
         """A vector failure must never break the SQL write path."""
-        class Boom:
+        class FailingVectorStore:
             def upsert(self, *a, **kw):
                 raise RuntimeError("vector store down")
 
-        repo._vector_store = Boom()
+        repo._vector_store = FailingVectorStore()
         fact = repo.save_fact(key="k1", value="v1", tenant_id="t1")
         assert fact.key == "k1"
         # Row is still in the relational store
