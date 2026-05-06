@@ -2,9 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ────────────────────────────────────────────────────────────────
+ * Design tokens — single source of truth for palette, radius, motion.
+ * Themes are switched by toggling a class on the <html> element:
+ *   • default        → dark
+ *   • .theme-light   → light
+ *   • .dir-rtl       → right-to-left layout (Arabic)
+ * ──────────────────────────────────────────────────────────────── */
+:root {
+  --ml-bg: 2 6 23;            /* slate-950 */
+  --ml-surface: 15 23 42;     /* slate-900 */
+  --ml-elevated: 30 41 59;    /* slate-800 */
+  --ml-border: 51 65 85;      /* slate-700 */
+  --ml-muted: 30 41 59;
+  --ml-fg: 241 245 249;       /* slate-100 */
+  --ml-fg-muted: 148 163 184; /* slate-400 */
+  --ml-accent: 65 102 236;    /* brand-500 */
+  --ml-accent-fg: 255 255 255;
+  --ml-danger: 239 68 68;
+  --ml-success: 16 185 129;
+  --ml-warning: 245 158 11;
+  --ml-radius: 0.625rem;
+  --ml-motion: 150ms;
+}
+
+.theme-light {
+  --ml-bg: 248 250 252;       /* slate-50 */
+  --ml-surface: 255 255 255;
+  --ml-elevated: 241 245 249; /* slate-100 */
+  --ml-border: 226 232 240;   /* slate-200 */
+  --ml-muted: 241 245 249;
+  --ml-fg: 15 23 42;          /* slate-900 */
+  --ml-fg-muted: 100 116 139; /* slate-500 */
+}
+
+/* Honour OS preference when no explicit class is set. */
+@media (prefers-color-scheme: light) {
+  :root:not(.theme-dark) {
+    --ml-bg: 248 250 252;
+    --ml-surface: 255 255 255;
+    --ml-elevated: 241 245 249;
+    --ml-border: 226 232 240;
+    --ml-muted: 241 245 249;
+    --ml-fg: 15 23 42;
+    --ml-fg-muted: 100 116 139;
+  }
+}
+
+/* Respect reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --ml-motion: 0ms; }
+  *, *::before, *::after {
+    /* Use a tiny non-zero value so `transitionend` listeners still fire,
+     * matching the recommendation in the WAI-ARIA Authoring Practices. */
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased;
+    @apply bg-bg text-fg font-sans antialiased;
     user-select: none;
   }
 
@@ -12,18 +70,25 @@
     user-select: text;
   }
 
+  /* Visible keyboard focus everywhere — accessibility baseline. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--ml-accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-slate-900;
+    @apply bg-surface;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-700 rounded-full;
+    @apply bg-border rounded-full;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-500;
+    @apply bg-fg-muted;
   }
 }
 
@@ -33,7 +98,7 @@
   }
 
   .btn-secondary {
-    @apply bg-slate-700 hover:bg-slate-600 active:bg-slate-800 text-slate-100 px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply bg-elevated hover:bg-border active:bg-muted text-fg px-4 py-2 rounded-lg font-medium transition-colors;
   }
 
   .btn-danger {
@@ -41,15 +106,15 @@
   }
 
   .card {
-    @apply bg-slate-900 border border-slate-800 rounded-xl p-5;
+    @apply bg-surface border border-border rounded-xl p-5;
   }
 
   .input {
-    @apply bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all;
+    @apply bg-elevated border border-border rounded-lg px-3 py-2 text-fg placeholder-fg-muted focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all;
   }
 
   .label {
-    @apply text-sm font-medium text-slate-400 mb-1 block;
+    @apply text-sm font-medium text-fg-muted mb-1 block;
   }
 
   .badge-green {
@@ -77,6 +142,16 @@
   }
 
   .tab-btn:not(.active) {
-    @apply text-slate-400 hover:text-slate-200 hover:bg-slate-800;
+    @apply text-fg-muted hover:text-fg hover:bg-elevated;
+  }
+
+  /* Inline citation chip used by the chat surface to render server-side
+   * RAG citations. The bracketed id (e.g. [#1]) is announced verbatim by
+   * screen readers via the title/aria-label so the keyboard story works. */
+  .citation-chip {
+    @apply inline-flex items-center px-1.5 py-0 mx-0.5 rounded text-[10px] font-mono
+           bg-brand-950 text-brand-300 border border-brand-800
+           hover:bg-brand-900 transition-colors cursor-help;
   }
 }
+

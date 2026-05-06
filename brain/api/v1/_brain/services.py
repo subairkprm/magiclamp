@@ -130,7 +130,11 @@ async def llm(
     try:
         return await ollama_circuit.call(_call)
     except Exception as e:  # pragma: no cover - exercised via streaming path
-        return f"AI Engine unavailable: {e}"
+        # SECURITY: do not echo the exception object to the caller — it can
+        # contain stack-trace fragments or upstream URLs (CodeQL py/stack-trace-exposure).
+        # Log full detail server-side and return a generic message to the user.
+        log.error(f"LLM call failed: {e}")
+        return "AI Engine unavailable. Please try again shortly."
 
 
 async def llm_stream(prompt: str, system: Optional[str] = None):

@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/auth'
 import client from '../api/client'
+import { ThemeToggle } from './ui'
 
 const navItems = [
   {
@@ -72,7 +73,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* User info + logout */}
+      {/* User info + logout + theme/dir toggle */}
       <div className="px-4 py-4 border-t border-slate-800">
         {user && (
           <div className="mb-3">
@@ -81,6 +82,9 @@ export default function Sidebar() {
             <span className="inline-block mt-0.5 text-xs text-brand-400 capitalize">{user.role}</span>
           </div>
         )}
+        <div className="mb-2">
+          <ThemeToggle />
+        </div>
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-950/30 transition-colors"

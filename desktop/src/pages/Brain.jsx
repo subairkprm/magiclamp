@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import client from '../api/client'
 import { useTaskPoller } from '../components/TaskPoller'
+import useAskStream from '../api/useAskStream'
+import CitedAnswer from '../components/CitedAnswer'
 
 const TABS = ['Ask', 'Decide', 'Lead Analysis']
 
@@ -34,25 +36,75 @@ export default function Brain() {
 }
 
 // ─── Ask ──────────────────────────────────────────────────────────────────────
+//
+// The Ask tab uses the new SSE streaming endpoint (`/brain/reason/ask/stream`)
+// to render tokens as they arrive, exposes server-side RAG citations as
+// inline chips, and offers Copy / Regenerate / Stop controls.
+//
+// On any streaming failure we automatically fall back to the legacy polled
+// task pipeline (`/brain/reason/ask` + `/brain/tasks/{id}`) so the user
+// always gets an answer even when the gateway buffers or strips SSE.
 function AskTab() {
   const [question, setQuestion] = useState('')
-  const { poll, result, error, loading, reset } = useTaskPoller()
+  const lastQuestion = useRef('')
+  const stream = useAskStream()
+  // Polled fallback path retains the existing task poller so we don't
+  // re-implement task orchestration in two places.
+  const { poll, result: polledResult, error: polledError, loading: polling, reset: resetPolled } = useTaskPoller()
+  const [usedFallback, setUsedFallback] = useState(false)
 
-  async function submit(e) {
-    e.preventDefault()
-    reset()
-    const { data } = await client.post('/brain/reason/ask', { question }).catch((err) => {
-      throw err
-    })
-    poll(data.task_id)
+  async function runAsk(q) {
+    if (!q?.trim()) return
+    lastQuestion.current = q
+    setUsedFallback(false)
+    resetPolled()
+    await stream.ask(q)
+    // Heuristic: if the stream ended with an error and produced no tokens,
+    // fall back to the polled flow so the user still gets a response.
+    if (stream.error && !stream.answer) {
+      setUsedFallback(true)
+      try {
+        const { data } = await client.post('/brain/reason/ask', { question: q })
+        poll(data.task_id)
+      } catch (e) {
+        // Both paths failed; the streaming error UI will display.
+      }
+    }
   }
+
+  function submit(e) {
+    e.preventDefault()
+    runAsk(question)
+  }
+
+  function regenerate() {
+    if (!lastQuestion.current) return
+    runAsk(lastQuestion.current)
+  }
+
+  function copy() {
+    const text = stream.answer || polledResult?.answer || ''
+    if (text) navigator.clipboard?.writeText(text).catch(() => {})
+  }
+
+  // Decide which payload to render — streaming wins, fallback otherwise.
+  const renderedText  = stream.answer || polledResult?.answer || ''
+  const renderedMeta  = stream.meta || (polledResult ? {
+    retrieval_mode: polledResult.retrieval_mode,
+    citations: polledResult.citations || [],
+  } : null)
+  const isBusy   = stream.streaming || polling
+  const errorMsg = stream.error && !usedFallback
+    ? stream.error
+    : polledError
 
   return (
     <div className="max-w-2xl space-y-4">
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="label">Ask the Brain anything</label>
+          <label className="label" htmlFor="ask-input">Ask the Brain anything</label>
           <textarea
+            id="ask-input"
             className="input w-full h-24 resize-none"
             placeholder="e.g. What is the best product for a customer with AED 15,000 salary?"
             value={question}
@@ -60,23 +112,72 @@ function AskTab() {
             required
           />
         </div>
-        <button type="submit" disabled={loading} className="btn-primary">
-          {loading ? <SpinnerBtn>Thinking...</SpinnerBtn> : 'Ask'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="submit" disabled={isBusy} className="btn-primary">
+            {isBusy ? <SpinnerBtn>Thinking...</SpinnerBtn> : 'Ask'}
+          </button>
+          {stream.streaming && (
+            <button type="button" onClick={stream.stop} className="btn-secondary">Stop</button>
+          )}
+          {!isBusy && renderedText && (
+            <>
+              <button type="button" onClick={regenerate} className="btn-secondary">Regenerate</button>
+              <button type="button" onClick={copy} className="btn-secondary">Copy</button>
+            </>
+          )}
+        </div>
       </form>
 
-      {loading && <ThinkingCard />}
+      {isBusy && !renderedText && <ThinkingCard />}
 
-      {result && (
-        <div className="card space-y-2">
-          <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Answer</p>
-          <p className="text-slate-200 leading-relaxed whitespace-pre-wrap">{result.answer}</p>
+      {(renderedText || renderedMeta) && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-fg-muted uppercase tracking-wider font-semibold">Answer</p>
+            {renderedMeta?.retrieval_mode && (
+              <RetrievalBadge mode={renderedMeta.retrieval_mode} />
+            )}
+          </div>
+
+          <CitedAnswer text={renderedText} citations={renderedMeta?.citations} />
+
+          {renderedMeta?.citations?.length > 0 && (
+            <div className="pt-2 border-t border-border">
+              <p className="text-xs text-fg-muted uppercase tracking-wider font-semibold mb-1">
+                Sources
+              </p>
+              <ul className="space-y-1">
+                {renderedMeta.citations.map((c) => (
+                  <li key={c.id} className="text-xs text-fg-muted">
+                    <span className="citation-chip mr-1">#{c.id}</span>
+                    <span className="font-mono">{c.key}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {usedFallback && (
+            <p className="text-[11px] text-fg-muted italic">
+              Streaming unavailable — answered via polled task fallback.
+            </p>
+          )}
         </div>
       )}
 
-      {error && <ErrorCard>{error}</ErrorCard>}
+      {errorMsg && <ErrorCard>{errorMsg}</ErrorCard>}
     </div>
   )
+}
+
+function RetrievalBadge({ mode }) {
+  const cls = mode === 'rag'    ? 'badge-green'
+            : mode === 'recent' ? 'badge-blue'
+            :                     'badge-yellow'
+  const label = mode === 'rag'    ? 'RAG'
+              : mode === 'recent' ? 'Recent facts'
+              :                     'No retrieval'
+  return <span className={cls}>{label}</span>
 }
 
 // ─── Decide ───────────────────────────────────────────────────────────────────

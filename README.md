@@ -29,7 +29,17 @@ MagicLamp combines cutting-edge AI technology with robust enterprise architectur
 - **N8N Automation**: Workflow automation and integration support
 - **Telegram Integration**: Daily briefings and notifications
 - **Vector Memory**: ChromaDB-backed semantic retrieval over `brain_facts`, gated by `RAG_ENABLED` (see [`docs/rag.md`](docs/rag.md))
+- **Streaming Chat**: SSE endpoint `POST /brain/reason/ask/stream` with inline citation chips in the desktop client (see [streaming reference](docs/reference/streaming-ask.md))
+- **Themed UI**: CSS-token design system with light/dark and Arabic LTR/RTL switching (see [ADR 0004](docs/adr/0004-design-tokens-and-rtl.md))
 - **Training Data Export**: Automatic collection and export for model fine-tuning
+
+> **Documentation:** the full docs follow the [Diátaxis](https://diataxis.fr/)
+> framework — see [`docs/`](docs/). Start with the
+> [Quickstart](docs/tutorials/quickstart.md), then jump to the
+> [Brain API surface](docs/reference/brain-api.md) or the
+> [ADR index](docs/adr/README.md). Recent changes are in
+> [`CHANGELOG.md`](CHANGELOG.md); breaking changes / upgrade notes live in
+> [`MIGRATION.md`](MIGRATION.md).
 
 ---
 
