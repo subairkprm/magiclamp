@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
 
-const TABS = ['Health', 'Organizations', 'Users', 'Audit Log']
+const TABS = ['Health', 'AI Provider', 'Organizations', 'Users', 'Audit Log']
 
 export default function Admin() {
   const [tab, setTab] = useState('Health')
@@ -26,6 +26,7 @@ export default function Admin() {
       </div>
 
       {tab === 'Health' && <HealthTab />}
+      {tab === 'AI Provider' && <LLMTab />}
       {tab === 'Organizations' && <OrgsTab />}
       {tab === 'Users' && <UsersTab />}
       {tab === 'Audit Log' && <AuditTab />}
@@ -120,6 +121,179 @@ function HealthTab() {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+// ─── AI Provider ──────────────────────────────────────────────────────────────
+// Lets the operator pick the active LLM provider, override the model name, and
+// validate connectivity end-to-end. API keys themselves stay in env vars
+// (server side) — this panel only changes the *selection*.
+function LLMTab() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [provider, setProvider] = useState('')
+  const [model, setModel] = useState('')
+  const [testResult, setTestResult] = useState(null)
+  const [testing, setTesting] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setError('')
+    client.get('/admin/llm/providers')
+      .then(({ data }) => {
+        setData(data)
+        setProvider(data?.active || '')
+        const activeRow = (data?.providers || []).find((p) => p.name === data?.active)
+        setModel(activeRow?.model || '')
+      })
+      .catch(() => setError('Failed to load providers'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    setSaving(true)
+    setError('')
+    try {
+      await client.put('/admin/llm/active', { provider, model })
+      load()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function runTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const { data } = await client.post('/admin/llm/test', { provider })
+      setTestResult(data)
+    } catch (err) {
+      setTestResult({ ok: false, error: err.response?.data?.message || 'Request failed' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (loading) return <div className="card text-slate-500 text-sm">Loading providers…</div>
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <div className="card">
+        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">
+          Active provider
+        </p>
+        <p className="text-sm text-slate-400 mb-4">
+          MagicLamp talks to one LLM provider at a time. Pick which one — and
+          which model — to route every brain call through. API keys are
+          configured via environment variables on the server, never stored in
+          the database.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Provider</label>
+            <select
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value)
+                const row = (data?.providers || []).find((p) => p.name === e.target.value)
+                setModel(row?.model || '')
+              }}
+              className="input w-full"
+            >
+              {(data?.providers || []).map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}{p.configured ? '' : ' (not configured)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Model</label>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="e.g. gpt-4o-mini"
+              className="input w-full"
+            />
+            <p className="text-xs text-slate-600 mt-1">
+              Leave blank to use the provider's default model.
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={saving || !provider}
+              className="btn-primary text-sm"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={runTest}
+              disabled={testing || !provider}
+              className="btn-secondary text-sm"
+            >
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+          </div>
+
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+
+          {testResult && (
+            <div className={`text-sm rounded p-3 ${testResult.ok ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'}`}>
+              {testResult.ok ? (
+                <>
+                  <p className="font-mono">✓ {testResult.provider} ({testResult.model})</p>
+                  {testResult.response && (
+                    <p className="mt-1 text-xs opacity-80">Response: {testResult.response}</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>✗ Test failed</p>
+                  {testResult.error && <p className="mt-1 text-xs opacity-80">{testResult.error}</p>}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">
+          Available providers
+        </p>
+        <div className="space-y-2">
+          {(data?.providers || []).map((p) => (
+            <div key={p.name} className="flex items-center justify-between text-sm py-2 border-b border-slate-800 last:border-0">
+              <div>
+                <span className="text-slate-200 font-mono">{p.name}</span>
+                {p.active && <span className="ml-2 badge-green text-xs">active</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 font-mono text-xs">{p.model}</span>
+                <span className={`text-xs ${p.configured ? 'badge-green' : 'badge-yellow'}`}>
+                  {p.configured ? 'configured' : 'no key'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-600 mt-3">
+          To configure a provider, set its API-key environment variable
+          (e.g. <code className="font-mono">OPENAI_API_KEY</code>) on the server and restart.
+        </p>
+      </div>
     </div>
   )
 }

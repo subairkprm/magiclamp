@@ -80,6 +80,24 @@ def _encode_value(column: str, value: Any) -> Any:
     return value
 
 
+def _validate_identifier(name: str, what: str) -> str:
+    """Reject anything that isn't a plain SQL identifier (alnum + underscore).
+
+    SQLite parameterised queries don't apply to table or column *names* — those
+    are interpolated into the SQL string. We only ever build identifiers from
+    callers' arguments (table names, column names, order_by clause), so a
+    strict whitelist is the only safe approach against injection.
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError(f"Invalid {what}: must be a non-empty string")
+    # Allow letters, digits, underscore. Reject backticks, semicolons, spaces,
+    # quotes, parens, anything else. Length cap protects against pathological
+    # inputs.
+    if len(name) > 63 or not name.replace("_", "").isalnum():
+        raise ValueError(f"Unsafe {what}: {name!r}")
+    return name
+
+
 def _decode_row(row: sqlite3.Row) -> Dict[str, Any]:
     """Decode a sqlite3.Row into a plain dict with JSON/bool columns rehydrated."""
     out: Dict[str, Any] = {}
@@ -162,9 +180,23 @@ class SQLiteClient(DatabaseClient):
         return "(" + " OR ".join(clauses) + ")", params
 
     def _existing_columns(self, table: str) -> set[str]:
+        _validate_identifier(table, "table name")
         with self._lock:
             cur = self._conn.execute(f"PRAGMA table_info({table})")
             return {row[1] for row in cur.fetchall()}
+
+    @staticmethod
+    def _validate_columns(cols: List[str], existing: set[str]) -> None:
+        """Reject column names that aren't real columns on the target table.
+
+        Catches both SQL-injection attempts (no ``;`` / spaces survive the
+        identifier check) and harmless typos that would otherwise produce
+        confusing errors later in the SQL pipeline.
+        """
+        for c in cols:
+            _validate_identifier(c, "column name")
+            if c not in existing:
+                raise ValueError(f"Unknown column {c!r} on target table")
 
     def _inject_tenant_id(
         self, data: Dict[str, Any], tenant_id: Optional[str]
@@ -185,7 +217,17 @@ class SQLiteClient(DatabaseClient):
         count: bool = False,
     ) -> QueryResult:
         try:
-            cols = columns if columns and columns.strip() else "*"
+            _validate_identifier(table, "table name")
+            existing = self._existing_columns(table)
+            # Validate `columns` projection — only "*" or comma-separated
+            # identifiers from the table are allowed (defends against
+            # ``SELECT * FROM x; DROP TABLE y``).
+            if columns and columns.strip() and columns.strip() != "*":
+                proj = [c.strip() for c in columns.split(",") if c.strip()]
+                self._validate_columns(proj, existing)
+                cols = ",".join(proj)
+            else:
+                cols = "*"
             sql = f"SELECT {cols} FROM {table}"
             where: List[str] = []
             params: List[Any] = []
@@ -196,6 +238,7 @@ class SQLiteClient(DatabaseClient):
                 params.extend(tenant_params)
 
             if filters:
+                self._validate_columns(list(filters.keys()), existing)
                 for k, v in filters.items():
                     where.append(f"{k} = ?")
                     params.append(_encode_value(k, v))
@@ -354,6 +397,7 @@ class SQLiteClient(DatabaseClient):
                 where.append(tenant_frag)
                 params.extend(tenant_params)
             if filters:
+                self._validate_columns(list(filters.keys()), cols_in_table)
                 for k, v in filters.items():
                     where.append(f"{k} = ?")
                     params.append(_encode_value(k, v))
@@ -385,6 +429,8 @@ class SQLiteClient(DatabaseClient):
                 where.append(tenant_frag)
                 params.extend(tenant_params)
             if filters:
+                existing_d = self._existing_columns(table)
+                self._validate_columns(list(filters.keys()), existing_d)
                 for k, v in filters.items():
                     where.append(f"{k} = ?")
                     params.append(_encode_value(k, v))

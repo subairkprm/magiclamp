@@ -8,6 +8,21 @@ MagicLamp is an enterprise-grade AI brain system designed specifically for UAE b
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-green.svg)](https://fastapi.tiangolo.com/)
 
+## 🚂 Deploy in 5 minutes
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https%3A%2F%2Fgithub.com%2Fsubairkprm%2FMagicLamp)
+
+The fastest way to get MagicLamp running is the single-service Railway deploy.
+You only need an LLM API key (OpenAI, Anthropic, Groq, OpenRouter, or Gemini)
+— no Supabase, no Redis, no Ollama, no domain or SSL setup.
+
+→ **[5-minute Railway walkthrough](docs/how-to/deploy-railway.md)**
+→ **[Pick an LLM provider](docs/how-to/choose-llm-provider.md)**
+→ **[Compare deployment modes](docs/explanation/deployment-modes.md)**
+
+For self-hosted, GPU-local, multi-service setups (Ollama + n8n + nginx),
+see the [Advanced VPS guide](docs/how-to/deploy-vps-with-ollama.md).
+
 ---
 
 ## 📋 Overview
@@ -24,9 +39,10 @@ MagicLamp combines cutting-edge AI technology with robust enterprise architectur
 
 ### Key Features
 
-- **Local LLM Integration**: Uses Ollama for on-premises AI processing
-- **Supabase Backend**: Scalable PostgreSQL database with real-time capabilities
-- **N8N Automation**: Workflow automation and integration support
+- **Pluggable LLM providers**: OpenAI, Anthropic, Groq, OpenRouter, Gemini, or self-hosted Ollama — switch with one env var (see [ADR 0005](docs/adr/0005-pluggable-llm-providers.md))
+- **Two deployment modes**: Simple (Railway / SQLite, zero external infra) or Self-hosted (VPS + Ollama + Supabase) — see [deployment modes](docs/explanation/deployment-modes.md)
+- **SQLite-by-default storage**: Single-file database under `BRAIN_DATA_DIR`, swappable for Supabase via `DB_BACKEND=supabase` (see [ADR 0006](docs/adr/0006-sqlite-default-backend.md))
+- **N8N Automation**: Workflow automation and integration support (VPS mode)
 - **Telegram Integration**: Daily briefings and notifications
 - **Vector Memory**: ChromaDB-backed semantic retrieval over `brain_facts`, gated by `RAG_ENABLED` (see [`docs/rag.md`](docs/rag.md))
 - **Streaming Chat**: SSE endpoint `POST /brain/reason/ask/stream` with inline citation chips in the desktop client (see [streaming reference](docs/reference/streaming-ask.md))
