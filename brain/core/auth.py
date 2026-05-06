@@ -7,22 +7,35 @@ import hashlib
 import secrets
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from fastapi import Depends, HTTPException, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from jose import JWTError, jwt
-from supabase import Client, create_client
 from core.config import settings
 from core.logger import get_logger
 from core.database import get_database_client
 
 log = get_logger("auth")
 
-_supabase_client: Optional[Client] = None
+_supabase_client: Optional[Any] = None
 
-def _get_supabase() -> Client:
+
+def _get_supabase():
+    """Lazily import & instantiate the Supabase client.
+
+    The auth layer only needs Supabase for legacy code paths still calling the
+    raw client directly. SQLite-only deploys never reach this function so the
+    ``supabase`` package can stay an optional dependency.
+    """
     global _supabase_client
     if _supabase_client is None:
+        from supabase import create_client  # noqa: WPS433 — intentional lazy import
+
+        if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+            raise RuntimeError(
+                "Supabase auth requested but SUPABASE_URL / "
+                "SUPABASE_SERVICE_KEY are not configured"
+            )
         _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
     return _supabase_client
 

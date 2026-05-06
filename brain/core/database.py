@@ -7,7 +7,6 @@ Completely removes hardcoded Supabase dependencies from API routes.
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any, Type, TypeVar
 from datetime import datetime
-from supabase import create_client, Client
 from core.config import settings
 from core.logger import get_logger
 from core.models import TenantModel
@@ -160,9 +159,18 @@ class SupabaseClient(DatabaseClient):
             url: Supabase URL (defaults to settings.SUPABASE_URL)
             key: Supabase key (defaults to settings.SUPABASE_KEY)
         """
+        # Lazy import — supabase is only required when DB_BACKEND=supabase, so
+        # importing it eagerly would force every deployment (including SQLite-
+        # only Railway deploys) to ship the dependency.
+        from supabase import create_client, Client  # noqa: F401
+
         self.url = url or settings.SUPABASE_URL
         self.key = key or settings.SUPABASE_KEY
-        self.client: Client = create_client(self.url, self.key)
+        if not self.url or not self.key:
+            raise ValueError(
+                "SupabaseClient requires SUPABASE_URL and SUPABASE_SERVICE_KEY"
+            )
+        self.client = create_client(self.url, self.key)
         log.info("Supabase client initialized")
 
     def _add_tenant_filter(self, query, tenant_id: Optional[str]):
@@ -311,7 +319,7 @@ class SupabaseClient(DatabaseClient):
         result = self.select(table=table, columns="id", tenant_id=tenant_id, filters=filters, count=True)
         return result.count or 0
 
-    def get_raw_client(self) -> Client:
+    def get_raw_client(self):
         """
         Get the raw Supabase client for advanced operations.
         Use sparingly - prefer using abstracted methods.
@@ -327,11 +335,26 @@ _db_client: Optional[DatabaseClient] = None
 def get_database_client() -> DatabaseClient:
     """
     Get the global database client instance.
-    Returns a SupabaseClient by default.
+
+    Selects the implementation based on ``settings.DB_BACKEND``:
+      * ``sqlite`` (default) — local file at ``${DATA_DIR}/magiclamp.db``;
+        no external service required. Ideal for Railway / single-box deploys.
+      * ``supabase`` — managed Postgres via Supabase; requires
+        ``SUPABASE_URL`` + ``SUPABASE_SERVICE_KEY``.
     """
     global _db_client
     if _db_client is None:
-        _db_client = SupabaseClient()
+        backend = (settings.DB_BACKEND or "sqlite").lower()
+        if backend == "supabase":
+            _db_client = SupabaseClient()
+        elif backend == "sqlite":
+            from core.database_sqlite import SQLiteClient
+
+            _db_client = SQLiteClient()
+        else:
+            raise ValueError(
+                f"Unknown DB_BACKEND={backend!r}. Supported: 'sqlite', 'supabase'."
+            )
     return _db_client
 
 

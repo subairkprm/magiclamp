@@ -17,15 +17,29 @@ from core.config import settings
 from core.logger import get_logger
 from core.bus import bus
 from core.circuit import ollama_circuit
-from supabase import create_client, Client
 
 log = get_logger("scheduler")
 
 _supabase_client = None
 
+
 def _get_supabase():
+    """Lazily import & instantiate the Supabase client.
+
+    The scheduler historically only ran with a Supabase backend on the VPS
+    deployment. SQLite-only Railway deploys never trigger this code (jobs use
+    the abstract ``DatabaseClient`` instead), so the import stays lazy to keep
+    the simple deployment free of the supabase Python dependency.
+    """
     global _supabase_client
     if _supabase_client is None:
+        from supabase import create_client  # noqa: WPS433 — intentional lazy import
+
+        if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+            raise RuntimeError(
+                "Scheduler Supabase access requested but SUPABASE_URL / "
+                "SUPABASE_SERVICE_KEY are not configured"
+            )
         _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
     return _supabase_client
 

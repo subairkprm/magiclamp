@@ -20,11 +20,14 @@ from core.validation import (
     sanitize_string,
 )
 from core.database import get_database_client, DatabaseClient
+from core.logger import get_logger
 from repositories import UserRepository
 from core.limiter import limiter
 import httpx, secrets
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+log = get_logger("api.admin")
 
 # Import limiter from main
 from core.limiter import limiter
@@ -453,3 +456,123 @@ async def list_modules(request: Request, admin: CurrentUser = Depends(require_ad
 async def run_health_check(request: Request, admin: CurrentUser = Depends(require_admin)) -> Dict[str, Dict[str, Any]]:
     results = await registry.health_check_all()
     return {k: {"healthy": v.healthy, "message": v.message} for k, v in results.items()}
+
+
+# ── LLM PROVIDERS ─────────────────────────────
+# These endpoints power the Settings → AI Provider panel in the desktop UI.
+# API keys are NEVER stored in the database — they live in env vars only —
+# so this layer is concerned with selection (provider + model name) and
+# best-effort connectivity testing.
+
+class LLMActiveRequest(BaseModel):
+    provider: str
+    model: Optional[str] = None
+
+
+class LLMTestRequest(BaseModel):
+    provider: Optional[str] = None  # default: currently active
+    prompt: Optional[str] = "Say 'pong' and nothing else."
+
+
+@router.get("/llm/providers")
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def list_llm_providers(
+    request: Request, admin: CurrentUser = Depends(require_admin)
+) -> Dict[str, Any]:
+    """List every known LLM provider, which are configured, and which is active."""
+    from core.llm import get_active_provider_name, list_providers
+
+    return {
+        "active": get_active_provider_name(),
+        "providers": list_providers(),
+    }
+
+
+@router.put("/llm/active")
+@limiter.limit(settings.RATE_LIMIT_DEFAULT)
+async def set_active_llm(
+    request: Request,
+    body: LLMActiveRequest,
+    admin: CurrentUser = Depends(require_admin),
+    db: DatabaseClient = Depends(get_database_client),
+) -> Dict[str, Any]:
+    """Set the active LLM provider (and optionally model) for this tenant.
+
+    The selection is mirrored into the in-process override **and** persisted in
+    ``llm_settings`` so it survives restarts.
+    """
+    from core.llm import get_active_provider_name, set_active_provider
+
+    provider = sanitize_string(body.provider, max_length=32).lower()
+    try:
+        set_active_provider(provider)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    tenant_id = admin.org_id or "default"
+    # Persist via the abstract DatabaseClient — works on both Supabase and SQLite.
+    db.upsert(
+        table="llm_settings",
+        data={
+            "tenant_id": tenant_id,
+            "provider": provider,
+            "model": (body.model or "").strip() or None,
+            "updated_at": __import__("datetime").datetime.utcnow().isoformat(),
+        },
+        tenant_id=tenant_id,
+        on_conflict="tenant_id",
+    )
+
+    log_action(
+        "llm.provider.changed",
+        "llm_settings",
+        tenant_id,
+        new_data={"provider": provider, "model": body.model},
+        user_id=admin.user_id,
+    )
+    return {"ok": True, "active": get_active_provider_name(), "model": body.model}
+
+
+@router.post("/llm/test")
+@limiter.limit(settings.RATE_LIMIT_AI)
+async def test_llm(
+    request: Request,
+    body: LLMTestRequest,
+    admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Round-trip a tiny prompt to validate that the provider's key/model works."""
+    from core.llm import get_provider
+
+    name = (body.provider or "").strip().lower() or None
+    try:
+        p = get_provider(name)
+    except Exception as e:
+        # Don't leak internals — generic error.
+        log.error(f"LLM test: invalid provider {name!r}: {e}")
+        raise HTTPException(400, "Invalid provider")
+
+    if not p.is_configured():
+        return {
+            "ok": False,
+            "provider": p.name,
+            "model": p.model_name(),
+            "error": "Provider is not configured (missing API key in environment)",
+        }
+
+    try:
+        text = await p.complete(prompt=body.prompt or "ping", system=None)
+        return {
+            "ok": True,
+            "provider": p.name,
+            "model": p.model_name(),
+            "response": (text or "").strip()[:200],
+        }
+    except Exception as e:
+        # SECURITY: same rationale as services.llm — surface a generic message.
+        log.error(f"LLM test failed for {p.name}: {e}")
+        return {
+            "ok": False,
+            "provider": p.name,
+            "model": p.model_name(),
+            "error": "Provider call failed; check server logs",
+        }

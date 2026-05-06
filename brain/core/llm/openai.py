@@ -1,0 +1,43 @@
+"""OpenAI provider adapter (also works with any OpenAI-compatible endpoint)."""
+
+from __future__ import annotations
+
+from typing import AsyncIterator, Optional
+
+from core.config import settings
+
+from . import _openai_compat as oc
+
+DEFAULT_SYSTEM = "You are MagicLamp AI Brain — a UAE banking CRM specialist."
+
+
+class OpenAIProvider:
+    name = "openai"
+
+    def is_configured(self) -> bool:
+        return bool(settings.OPENAI_API_KEY)
+
+    def model_name(self) -> str:
+        return settings.OPENAI_MODEL
+
+    async def complete(
+        self, prompt: str, system: Optional[str] = None, json_mode: bool = False
+    ) -> str:
+        return await oc.chat_complete(
+            base_url=settings.OPENAI_BASE_URL,
+            api_key=settings.OPENAI_API_KEY or "",
+            model=self.model_name(),
+            messages=oc.build_messages(prompt, system, DEFAULT_SYSTEM),
+            json_mode=json_mode,
+        )
+
+    async def stream(
+        self, prompt: str, system: Optional[str] = None
+    ) -> AsyncIterator[str]:
+        async for chunk in oc.chat_stream(
+            base_url=settings.OPENAI_BASE_URL,
+            api_key=settings.OPENAI_API_KEY or "",
+            model=self.model_name(),
+            messages=oc.build_messages(prompt, system, DEFAULT_SYSTEM),
+        ):
+            yield chunk
