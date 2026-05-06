@@ -73,29 +73,51 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── API KEY ───────────────────────────────────
 def generate_api_key(org_id: str, name: str, scopes: list[str]) -> tuple[str, str]:
-    """Returns (plain_key, key_hash). Store only the hash."""
+    """Returns (plain_key, key_hash). Store only the hash.
+
+    Persists the key record through the :class:`DatabaseClient` abstraction so
+    that the storage backend remains pluggable and unit-testable (see
+    ``tests/test_auth.py::TestAPIKeys``).
+    """
     plain = "ml_" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plain.encode()).hexdigest()
     prefix = plain[:10]
-    _get_supabase().table("api_keys").insert({
-        "org_id": org_id,
-        "name": name,
-        "key_hash": key_hash,
-        "key_prefix": prefix,
-        "scopes": scopes,
-        "created_by": "admin",
-    }).execute()
+    db = get_database_client()
+    db.insert(
+        table="api_keys",
+        data={
+            "org_id": org_id,
+            "name": name,
+            "key_hash": key_hash,
+            "key_prefix": prefix,
+            "scopes": scopes,
+            "created_by": "admin",
+        },
+    )
     return plain, key_hash
 
 
 def verify_api_key(plain_key: str) -> Optional[dict]:
+    """Look up an API key by its SHA-256 hash via the DatabaseClient abstraction.
+
+    Returns the key record dict on success or ``None`` when no active key
+    matches. Updates ``last_used_at`` on a hit so administrators can audit usage.
+    """
     key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
-    result = _get_supabase().table("api_keys").select("*")\
-        .eq("key_hash", key_hash).eq("is_active", True).execute()
-    if result.data:
+    db = get_database_client()
+    result = db.select(
+        table="api_keys",
+        columns="*",
+        filters={"key_hash": key_hash, "is_active": True},
+        limit=1,
+    )
+    if result.success and result.data:
         key = result.data[0]
-        _get_supabase().table("api_keys").update({"last_used_at": datetime.utcnow().isoformat()})\
-            .eq("id", key["id"]).execute()
+        db.update(
+            table="api_keys",
+            data={"last_used_at": datetime.now(timezone.utc).isoformat()},
+            filters={"id": key["id"]},
+        )
         return key
     return None
 
