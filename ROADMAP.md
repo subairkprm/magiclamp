@@ -42,7 +42,10 @@
 
 ## Phase 2 — AI Differentiator (Weeks 7–10)
 
-- [ ] Two-tier LLM routing (cheap router + frontier synthesiser).
+- [~] Two-tier LLM routing (cheap router + frontier synthesiser).
+      Router landed in `brain/core/llm_router.py` (TwoTierRouter +
+      classify_complexity heuristic + escalation sentinel + per-tier
+      counters). HTTP wiring + production prompt templates still to come.
 - [ ] Arabic-tuned prompts + Gulf-dialect system messages.
 - [ ] WhatsApp Business Cloud API integration.
 - [ ] Document intelligence (PDF / Emirates ID / trade licence extraction).
