@@ -31,7 +31,11 @@
       `core.locale.compute_vat`. Provider-agnostic invoice builder landed
       in `brain/core/billing.py`; HTTP adapters for each gateway still
       to come.
-- [ ] Customer 360 v1 (profile, timeline, fact ledger, attachments).
+- [~] Customer 360 v1 (profile, timeline, fact ledger, attachments).
+      Backend domain landed in `brain/core/customer.py` (CustomerProfile,
+      Attachment, TimelineEvent, build_timeline) + UAE identity helpers
+      in `brain/core/uae_id.py` (Emirates ID with Luhn checksum, mobile
+      E.164 normaliser). Repository + HTTP wiring still to come.
 - [ ] Web app shell (Next.js 15) consuming the new design tokens.
 - [ ] Bilingual marketing landing at `lamp.ae`.
 - [ ] Closed alpha with 5 design partners (1 bank, 1 RE brokerage, 3 SMEs).
