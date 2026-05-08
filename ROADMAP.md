@@ -24,9 +24,13 @@
 
 ## Phase 1 — Commercial Skeleton (Weeks 3–6)
 
-- [ ] Auth + workspaces + RBAC (Owner / Admin / Manager / Agent / Viewer).
-- [ ] Stripe + Telr + Tabby billing pipeline; AED-default invoices using
-      `core.locale.compute_vat`.
+- [~] Auth + workspaces + RBAC (Owner / Admin / Manager / Agent / Viewer).
+      Permission matrix landed in `brain/core/rbac.py`; HTTP wiring + DB
+      schema for memberships still to come.
+- [~] Stripe + Telr + Tabby billing pipeline; AED-default invoices using
+      `core.locale.compute_vat`. Provider-agnostic invoice builder landed
+      in `brain/core/billing.py`; HTTP adapters for each gateway still
+      to come.
 - [ ] Customer 360 v1 (profile, timeline, fact ledger, attachments).
 - [ ] Web app shell (Next.js 15) consuming the new design tokens.
 - [ ] Bilingual marketing landing at `lamp.ae`.
