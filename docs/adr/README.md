@@ -12,3 +12,4 @@ Michael Nygard's classic ADR template (Context → Decision → Consequences).
 | [0005](0005-pluggable-llm-providers.md) | Pluggable LLM provider layer (`brain/core/llm/`) | Accepted |
 | [0006](0006-sqlite-default-backend.md) | SQLite as the default internal database backend | Accepted |
 | [0007](0007-uae-market-commercial-direction.md) | UAE-market commercial direction ("Lamp.ae") | Accepted |
+| [0008](0008-cloud-regions-and-two-tier-deployment.md) | Cloud regions and the two-tier deployment model | Accepted |

@@ -18,9 +18,9 @@
       with tests (`brain/core/locale.py`, `tests/test_locale.py`).
 - [x] Brand design tokens added on top of ADR 0004 (Pearl White, Desert
       Sand, Saadiyat Teal, Burj Gold, Midnight Oud).
-- [ ] Multi-tenant isolation audit (Backend / API + Security agents).
-- [ ] Eval harness scaffolding (AI / LLM + QA agents).
-- [ ] Cloud region decision recorded as ADR 0008.
+- [x] Multi-tenant isolation audit (Backend / API + Security agents).
+- [x] Eval harness scaffolding (AI / LLM + QA agents).
+- [x] Cloud region decision recorded as ADR 0008.
 
 ## Phase 1 — Commercial Skeleton (Weeks 3–6)
 
