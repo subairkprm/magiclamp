@@ -36,6 +36,40 @@
   --ml-fg-muted: 100 116 139; /* slate-500 */
 }
 
+/* ────────────────────────────────────────────────────────────────
+ * "Quiet Luxury × Gulf Modern" semantic tokens (ADR 0007).
+ *
+ * These are *additive* on top of the ADR-0004 base palette: the existing
+ * `--ml-*` tokens stay the source of truth for chrome (bg/surface/fg/...),
+ * while these new `--surface-*` / `--accent-prestige` tokens give pages a
+ * vocabulary for the Lamp.ae brand surfaces (hero, pricing, customer 360
+ * detail panes, marketing site).
+ *
+ * Palette references:
+ *   • Pearl White        #FAFAF7
+ *   • Desert Sand        #E9DFCB
+ *   • Saadiyat Teal      #0E6B66  (primary brand accent)
+ *   • Burj Gold          #C9A96E  ("prestige" accent — pricing, badges)
+ *   • Midnight Oud       #0B0F1A  (dark-mode hero/canvas)
+ * ──────────────────────────────────────────────────────────────── */
+:root {
+  --surface-1: 250 250 247;   /* Pearl White  — top-most page surface  */
+  --surface-2: 233 223 203;   /* Desert Sand  — quiet card / divider   */
+  --surface-3: 11 15 26;      /* Midnight Oud — hero canvas (dark)     */
+  --accent-brand: 14 107 102; /* Saadiyat Teal — primary action / link */
+  --accent-brand-fg: 255 255 255;
+  --accent-prestige: 201 169 110;  /* Burj Gold — pricing badges, awards */
+  --accent-prestige-fg: 11 15 26;
+}
+
+.theme-light {
+  /* On light theme, the hero/pricing surfaces invert to keep the gold
+   * accent legible against a Pearl-White canvas. */
+  --surface-1: 250 250 247;
+  --surface-2: 233 223 203;
+  --surface-3: 250 250 247;
+}
+
 /* Honour OS preference when no explicit class is set. */
 @media (prefers-color-scheme: light) {
   :root:not(.theme-dark) {

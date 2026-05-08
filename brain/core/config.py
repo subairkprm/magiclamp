@@ -45,6 +45,21 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY:     Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     GEMINI_MODEL:       str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
 
+    # Jais — UAE-hosted Arabic-first LLM (Inception/G42), OpenAI-compatible.
+    # Used by the "Sovereign Mode" deployment described in ADR 0007.
+    JAIS_API_KEY:       Optional[str] = Field(default=None, alias="JAIS_API_KEY")
+    JAIS_BASE_URL:      str = Field(default="https://api.jais.ai/v1", alias="JAIS_BASE_URL")
+    JAIS_MODEL:         str = Field(default="jais-30b-chat", alias="JAIS_MODEL")
+
+    # ── Deployment / data residency ─────────────
+    # Free-form region tag for the data-residency selector exposed by /health.
+    # Examples: "uae-g42", "me-central-1", "eu-central-1", "on-prem".
+    DEPLOYMENT_REGION:  str = Field(default="unspecified", alias="DEPLOYMENT_REGION")
+    # When true, the operator asserts this deployment runs entirely inside UAE
+    # infrastructure (G42 / Khazna / on-prem). Surfaced in /health for the
+    # admin "Sovereign Mode" UI and for compliance audit exports.
+    SOVEREIGN_MODE:     bool = Field(default=False, alias="SOVEREIGN_MODE")
+
     LLM_TIMEOUT:        int = Field(default=120, alias="LLM_TIMEOUT")
 
     # ── Ollama (optional / VPS deployment) ──────

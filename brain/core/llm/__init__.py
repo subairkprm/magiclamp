@@ -65,6 +65,7 @@ def _registry() -> Dict[str, "LLMProvider"]:
     from .openrouter import OpenRouterProvider
     from .gemini import GeminiProvider
     from .ollama import OllamaProvider
+    from .jais import JaisProvider
 
     return {
         "openai": OpenAIProvider(),
@@ -73,6 +74,7 @@ def _registry() -> Dict[str, "LLMProvider"]:
         "openrouter": OpenRouterProvider(),
         "gemini": GeminiProvider(),
         "ollama": OllamaProvider(),
+        "jais": JaisProvider(),
     }
 
 

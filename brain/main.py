@@ -112,7 +112,26 @@ app.include_router(brain_api.router, prefix="/api/v1")
 @app.get("/health")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def health(request: Request):
-    return {"status": "ok", "version": settings.APP_VERSION, "app": settings.APP_NAME}
+    """Liveness + sovereign-mode posture.
+
+    The ``deployment`` block is consumed by the admin "data-residency
+    selector" UI and by PDPL audit exports (ADR 0007). It deliberately
+    contains no secrets — only the *names* of the configured backend, LLM
+    provider, region tag, and sovereign-mode flag.
+    """
+    from core.llm import get_active_provider_name
+
+    return {
+        "status": "ok",
+        "version": settings.APP_VERSION,
+        "app": settings.APP_NAME,
+        "deployment": {
+            "db_backend": settings.DB_BACKEND,
+            "llm_provider": get_active_provider_name(),
+            "region": settings.DEPLOYMENT_REGION,
+            "sovereign_mode": settings.SOVEREIGN_MODE,
+        },
+    }
 
 
 @app.get("/")
