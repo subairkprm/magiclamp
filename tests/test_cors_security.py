@@ -2,7 +2,6 @@
 Test CORS Security Configuration
 WS-03: Ensure production CORS is strict and rejects wildcards
 """
-import importlib
 import sys
 import pytest
 import os
@@ -17,7 +16,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'brain'))
 @pytest.fixture(autouse=True)
 def _clear_settings_cache():
     """Clear lru_cache on get_settings before and after every test."""
-    import importlib
     # Clear the module-level lru_cache so each test gets a fresh Settings instance
     try:
         import core.config as cfg
@@ -251,11 +249,7 @@ class TestCORSMiddleware:
 
         # Force reload of config and main so our env vars take effect
         for mod in list(sys.modules.keys()):
-            if mod.startswith("core.") or mod == "core" or mod.startswith("brain."):
-                del sys.modules[mod]
-        # Also remove main if previously imported
-        for mod in list(sys.modules.keys()):
-            if mod in ("main",):
+            if mod.startswith("core.") or mod in ("core", "main") or mod.startswith("brain."):
                 del sys.modules[mod]
 
         import core.config as cfg
@@ -291,7 +285,7 @@ class TestCORSMiddleware:
         mw = self._get_cors_middleware(app)
         assert mw is not None, "CORSMiddleware not registered"
         assert mw.kwargs.get("allow_credentials") is True
-        assert "https://app.example.com" in mw.kwargs.get("allow_origins", [])
+        assert mw.kwargs.get("allow_origins") == ["https://app.example.com"]
 
     def test_allowed_headers_include_x_brain_key(self, monkeypatch):
         """CORSMiddleware must include X-Brain-Key in allow_headers"""
