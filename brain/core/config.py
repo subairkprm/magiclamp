@@ -86,7 +86,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_AI:       str = "20/minute"
     RATE_LIMIT_AUTH:     str = "5/minute"
 
-    CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+    # Empty string = no CORS (deny all cross-origin requests).
+    # Set CORS_ALLOWED_ORIGINS=https://lamp.ae in production .env.
+    CORS_ORIGINS:        str = Field(default="", alias="CORS_ALLOWED_ORIGINS")
 
     # ── RAG / Vector memory ─────────────────────
     RAG_ENABLED:         bool = Field(default=False, alias="RAG_ENABLED")

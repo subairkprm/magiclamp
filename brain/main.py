@@ -55,8 +55,8 @@ app = FastAPI(
     description="Enterprise AI Brain — Memory, Reasoning, Training, Control",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
 )
 
 # Register rate limiter
@@ -86,11 +86,23 @@ async def general_exception_handler(request: Request, exc: Exception):
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── MIDDLEWARE ────────────────────────────────
-# Configure CORS based on environment
-allowed_origins = ["*"]  # Default to allow all for development
-if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
-    # In production, use specific origins
-    allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+# CORS: deny all cross-origin by default (CORS_ALLOWED_ORIGINS is empty).
+# Set CORS_ALLOWED_ORIGINS=https://lamp.ae[,https://...] in production .env.
+_raw_origins = settings.CORS_ORIGINS.strip()
+if _raw_origins and _raw_origins != "*":
+    # Reject any entry that is bare `*` or contains a wildcard character
+    # (e.g. `https://*`) to prevent accidental open-CORS configs.
+    allowed_origins = [
+        o.strip()
+        for o in _raw_origins.split(",")
+        if o.strip() and "*" not in o
+    ]
+    if len(allowed_origins) < len([o for o in _raw_origins.split(",") if o.strip()]):
+        log.warning("CORS: wildcard-containing origins were stripped from CORS_ALLOWED_ORIGINS — use fully-qualified URLs only")
+else:
+    # Empty string → no origins allowed. Wildcard `*` is blocked intentionally;
+    # operators must list explicit origins.
+    allowed_origins = []
 
 app.add_middleware(
     CORSMiddleware,
