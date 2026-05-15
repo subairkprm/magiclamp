@@ -32,8 +32,8 @@ services:
     image: ollama/ollama:latest
     container_name: ml_ollama
     <<: [*restart, *logging]
-    ports:
-      - "11434:11434"
+    expose:
+      - "11434"
     volumes:
       - ./data/ollama:/root/.ollama
     environment:
@@ -61,8 +61,8 @@ services:
       dockerfile: Dockerfile
     container_name: ml_brain
     <<: [*restart, *logging]
-    ports:
-      - "9000:9000"
+    expose:
+      - "9000"
     environment:
       <<: *common-env
       JWT_SECRET:      ${JWT_SECRET}
@@ -95,8 +95,8 @@ services:
       dockerfile: Dockerfile
     container_name: ml_agent
     <<: [*restart, *logging]
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       <<: *common-env
       SUPABASE_KEY: ${SUPABASE_SERVICE_KEY}
@@ -120,8 +120,8 @@ services:
     image: n8nio/n8n:latest
     container_name: ml_n8n
     <<: [*restart, *logging]
-    ports:
-      - "5678:5678"
+    expose:
+      - "5678"
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
