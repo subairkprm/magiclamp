@@ -46,36 +46,38 @@ jobs:
             set -e
             cd ${{ env.DEPLOY_DIR }}
 
+            DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
             echo "── Pulling latest code ──"
             git fetch origin main
             git reset --hard origin/main
 
             echo "── Pulling base images ──"
-            docker-compose pull ollama n8n
+            $DC pull ollama n8n
 
             SERVICES="${{ github.event.inputs.services || 'all' }}"
             if [ "$SERVICES" = "all" ]; then
               echo "── Building all custom images ──"
-              docker-compose build --parallel brain agent
+              $DC build --parallel brain agent
               echo "── Starting all services ──"
-              docker-compose up -d
+              $DC up -d
             else
               echo "── Building: $SERVICES ──"
-              docker-compose build $SERVICES
+              $DC build $SERVICES
               echo "── Restarting: $SERVICES ──"
-              docker-compose up -d $SERVICES
+              $DC up -d $SERVICES
             fi
 
             echo "── Waiting for health checks ──"
             TRIES=0; MAX=30
             while [ $TRIES -lt $MAX ]; do
-              HEALTHY=$(docker-compose ps 2>/dev/null | grep -c "healthy" || echo 0)
+              HEALTHY=$($DC ps 2>/dev/null | grep -c "healthy" || echo 0)
               [ "$HEALTHY" -ge 2 ] && break
               sleep 5; TRIES=$((TRIES+1))
             done
 
             echo "── Deploy Status ──"
-            docker-compose ps
+            $DC ps
             curl -sf http://localhost:9000/health || echo "Brain still starting..."
             echo ""
             echo "✅ Deploy complete!"
