@@ -3,6 +3,7 @@ MagicLamp — Module Registry
 Every module registers itself here. The registry knows all modules,
 their versions, health status, and routes.
 """
+
 import asyncio
 from typing import Optional
 from abc import ABC, abstractmethod
@@ -11,17 +12,20 @@ from core.logger import get_logger
 
 log = get_logger("registry")
 
+
 @dataclass
 class HealthStatus:
-    healthy:  bool = True
-    message:  str  = "OK"
-    details:  dict = field(default_factory=dict)
+    healthy: bool = True
+    message: str = "OK"
+    details: dict = field(default_factory=dict)
+
 
 class BaseModule(ABC):
     """All modules must inherit this."""
-    name:         str = "base"
-    version:      str = "1.0.0"
-    description:  str = ""
+
+    name: str = "base"
+    version: str = "1.0.0"
+    description: str = ""
     dependencies: list[str] = []
 
     @abstractmethod
@@ -38,10 +42,11 @@ class BaseModule(ABC):
         """Called on graceful shutdown."""
         pass
 
+
 class ModuleRegistry:
     def __init__(self):
         self._modules: dict[str, BaseModule] = {}
-        self._health:  dict[str, HealthStatus] = {}
+        self._health: dict[str, HealthStatus] = {}
         self._initialized = False
 
     def register(self, module: BaseModule):
@@ -101,5 +106,6 @@ class ModuleRegistry:
             if hasattr(module, "get_routes"):
                 routes.extend(module.get_routes())
         return routes
+
 
 registry = ModuleRegistry()

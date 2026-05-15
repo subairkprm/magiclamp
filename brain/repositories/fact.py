@@ -2,6 +2,7 @@
 FactRepository - Repository pattern for Fact entity operations.
 Provides clean interface between database and API for brain facts storage and retrieval.
 """
+
 from typing import Optional, List, Dict, Any
 from core.database import DatabaseClient, QueryResult
 from core.models import Fact
@@ -24,12 +25,7 @@ class FactRepository:
         self.db = db_client
         self.table = "brain_facts"
 
-    def get_recent_facts(
-        self,
-        tenant_id: str,
-        limit: int = 20,
-        order_by: str = "created_at.desc"
-    ) -> List[Fact]:
+    def get_recent_facts(self, tenant_id: str, limit: int = 20, order_by: str = "created_at.desc") -> List[Fact]:
         """
         Get recent facts for a tenant.
 
@@ -46,11 +42,7 @@ class FactRepository:
         """
         try:
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                order_by=order_by,
-                limit=limit
+                table=self.table, columns="*", tenant_id=tenant_id, order_by=order_by, limit=limit
             )
 
             if not result.success:
@@ -66,14 +58,7 @@ class FactRepository:
                 raise
             raise DatabaseError(f"Error retrieving recent facts: {str(e)}")
 
-    def save_fact(
-        self,
-        key: str,
-        value: Any,
-        tenant_id: str,
-        source: str = "api",
-        confidence: float = 1.0
-    ) -> Fact:
+    def save_fact(self, key: str, value: Any, tenant_id: str, source: str = "api", confidence: float = 1.0) -> Fact:
         """
         Save (upsert) a fact for a tenant.
 
@@ -100,10 +85,7 @@ class FactRepository:
 
             # Use upsert to handle both insert and update cases
             result: QueryResult = self.db.upsert(
-                table=self.table,
-                data=fact_data,
-                tenant_id=tenant_id,
-                on_conflict="key,tenant_id"
+                table=self.table, data=fact_data, tenant_id=tenant_id, on_conflict="key,tenant_id"
             )
 
             if not result.success:
@@ -137,11 +119,7 @@ class FactRepository:
         """
         try:
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                filters={"key": key},
-                limit=1
+                table=self.table, columns="*", tenant_id=tenant_id, filters={"key": key}, limit=1
             )
 
             if not result.success:
@@ -158,10 +136,7 @@ class FactRepository:
             raise DatabaseError(f"Error retrieving fact by key: {str(e)}")
 
     def get_all(
-        self,
-        tenant_id: str,
-        limit: Optional[int] = None,
-        filters: Optional[Dict[str, Any]] = None
+        self, tenant_id: str, limit: Optional[int] = None, filters: Optional[Dict[str, Any]] = None
     ) -> List[Fact]:
         """
         Get all facts for a tenant with optional filtering.
@@ -184,7 +159,7 @@ class FactRepository:
                 tenant_id=tenant_id,
                 filters=filters,
                 order_by="created_at.desc",
-                limit=limit
+                limit=limit,
             )
 
             if not result.success:
@@ -198,12 +173,7 @@ class FactRepository:
                 raise
             raise DatabaseError(f"Error retrieving facts: {str(e)}")
 
-    def get_by_source(
-        self,
-        source: str,
-        tenant_id: str,
-        limit: Optional[int] = None
-    ) -> List[Fact]:
+    def get_by_source(self, source: str, tenant_id: str, limit: Optional[int] = None) -> List[Fact]:
         """
         Get facts by source within a tenant.
 
@@ -225,7 +195,7 @@ class FactRepository:
                 tenant_id=tenant_id,
                 filters={"source": source},
                 order_by="created_at.desc",
-                limit=limit
+                limit=limit,
             )
 
             if not result.success:
@@ -254,11 +224,7 @@ class FactRepository:
             DatabaseError: If database query fails
         """
         try:
-            count = self.db.count(
-                table=self.table,
-                tenant_id=tenant_id,
-                filters=filters
-            )
+            count = self.db.count(table=self.table, tenant_id=tenant_id, filters=filters)
             return count
 
         except Exception as e:
@@ -282,11 +248,7 @@ class FactRepository:
             DatabaseError: If database operation fails
         """
         try:
-            result: QueryResult = self.db.delete(
-                table=self.table,
-                tenant_id=tenant_id,
-                filters={"key": key}
-            )
+            result: QueryResult = self.db.delete(table=self.table, tenant_id=tenant_id, filters={"key": key})
 
             if not result.success:
                 raise DatabaseError(f"Failed to delete fact: {result.error}")
@@ -301,11 +263,7 @@ class FactRepository:
             raise DatabaseError(f"Error deleting fact: {str(e)}")
 
     def search_by_confidence(
-        self,
-        tenant_id: str,
-        min_confidence: float = 0.0,
-        max_confidence: float = 1.0,
-        limit: Optional[int] = None
+        self, tenant_id: str, min_confidence: float = 0.0, max_confidence: float = 1.0, limit: Optional[int] = None
     ) -> List[Fact]:
         """
         Get facts within a confidence range.
@@ -329,11 +287,7 @@ class FactRepository:
             # Get all facts and filter by confidence
             # Note: This could be optimized with database-level filtering
             result: QueryResult = self.db.select(
-                table=self.table,
-                columns="*",
-                tenant_id=tenant_id,
-                order_by="confidence.desc",
-                limit=limit
+                table=self.table, columns="*", tenant_id=tenant_id, order_by="confidence.desc", limit=limit
             )
 
             if not result.success:

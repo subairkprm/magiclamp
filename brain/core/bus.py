@@ -5,12 +5,14 @@ Usage:
   await bus.emit("lead.created", {"lead_id": 42, "team_id": 1})
   bus.subscribe("lead.created", my_handler)
 """
+
 import asyncio
 from typing import Callable, Any
 from collections import defaultdict
 from core.logger import get_logger
 
 log = get_logger("event_bus")
+
 
 class EventBus:
     def __init__(self):
@@ -84,5 +86,6 @@ class EventBus:
             "event_types": len(self._subscribers),
             "total_handlers": sum(len(v) for v in self._subscribers.values()),
         }
+
 
 bus = EventBus()

@@ -3,6 +3,7 @@ MagicLamp Database Abstraction Layer
 Provides database-agnostic interface with multi-tenant support.
 Completely removes hardcoded Supabase dependencies from API routes.
 """
+
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any, Type, TypeVar
 from datetime import datetime
@@ -13,7 +14,7 @@ from core.models import TenantModel
 
 log = get_logger("database")
 
-T = TypeVar('T', bound=TenantModel)
+T = TypeVar("T", bound=TenantModel)
 
 
 class QueryResult:
@@ -41,7 +42,7 @@ class DatabaseClient(ABC):
         filters: Optional[Dict[str, Any]] = None,
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
-        count: bool = False
+        count: bool = False,
     ) -> QueryResult:
         """
         Select records from a table.
@@ -61,12 +62,7 @@ class DatabaseClient(ABC):
         pass
 
     @abstractmethod
-    def insert(
-        self,
-        table: str,
-        data: Dict[str, Any],
-        tenant_id: Optional[str] = None
-    ) -> QueryResult:
+    def insert(self, table: str, data: Dict[str, Any], tenant_id: Optional[str] = None) -> QueryResult:
         """
         Insert a record into a table.
 
@@ -82,11 +78,7 @@ class DatabaseClient(ABC):
 
     @abstractmethod
     def upsert(
-        self,
-        table: str,
-        data: Dict[str, Any],
-        tenant_id: Optional[str] = None,
-        on_conflict: Optional[str] = None
+        self, table: str, data: Dict[str, Any], tenant_id: Optional[str] = None, on_conflict: Optional[str] = None
     ) -> QueryResult:
         """
         Upsert (insert or update) a record.
@@ -108,7 +100,7 @@ class DatabaseClient(ABC):
         table: str,
         data: Dict[str, Any],
         tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
     ) -> QueryResult:
         """
         Update records in a table.
@@ -126,10 +118,7 @@ class DatabaseClient(ABC):
 
     @abstractmethod
     def delete(
-        self,
-        table: str,
-        tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        self, table: str, tenant_id: Optional[str] = None, filters: Optional[Dict[str, Any]] = None
     ) -> QueryResult:
         """
         Delete records from a table.
@@ -145,12 +134,7 @@ class DatabaseClient(ABC):
         pass
 
     @abstractmethod
-    def count(
-        self,
-        table: str,
-        tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> int:
+    def count(self, table: str, tenant_id: Optional[str] = None, filters: Optional[Dict[str, Any]] = None) -> int:
         """
         Count records in a table.
 
@@ -202,7 +186,7 @@ class SupabaseClient(DatabaseClient):
         filters: Optional[Dict[str, Any]] = None,
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
-        count: bool = False
+        count: bool = False,
     ) -> QueryResult:
         """Select records from Supabase table."""
         try:
@@ -232,21 +216,13 @@ class SupabaseClient(DatabaseClient):
 
             # Execute
             response = query.execute()
-            return QueryResult(
-                data=response.data or [],
-                count=response.count if count else None
-            )
+            return QueryResult(data=response.data or [], count=response.count if count else None)
 
         except Exception as e:
             log.error(f"Supabase select error on {table}: {str(e)}")
             return QueryResult(data=[], error=str(e))
 
-    def insert(
-        self,
-        table: str,
-        data: Dict[str, Any],
-        tenant_id: Optional[str] = None
-    ) -> QueryResult:
+    def insert(self, table: str, data: Dict[str, Any], tenant_id: Optional[str] = None) -> QueryResult:
         """Insert record into Supabase table."""
         try:
             # Inject tenant_id
@@ -261,11 +237,7 @@ class SupabaseClient(DatabaseClient):
             return QueryResult(data=[], error=str(e))
 
     def upsert(
-        self,
-        table: str,
-        data: Dict[str, Any],
-        tenant_id: Optional[str] = None,
-        on_conflict: Optional[str] = None
+        self, table: str, data: Dict[str, Any], tenant_id: Optional[str] = None, on_conflict: Optional[str] = None
     ) -> QueryResult:
         """Upsert record in Supabase table."""
         try:
@@ -289,7 +261,7 @@ class SupabaseClient(DatabaseClient):
         table: str,
         data: Dict[str, Any],
         tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
     ) -> QueryResult:
         """Update records in Supabase table."""
         try:
@@ -312,10 +284,7 @@ class SupabaseClient(DatabaseClient):
             return QueryResult(data=[], error=str(e))
 
     def delete(
-        self,
-        table: str,
-        tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        self, table: str, tenant_id: Optional[str] = None, filters: Optional[Dict[str, Any]] = None
     ) -> QueryResult:
         """Delete records from Supabase table."""
         try:
@@ -337,20 +306,9 @@ class SupabaseClient(DatabaseClient):
             log.error(f"Supabase delete error on {table}: {str(e)}")
             return QueryResult(data=[], error=str(e))
 
-    def count(
-        self,
-        table: str,
-        tenant_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> int:
+    def count(self, table: str, tenant_id: Optional[str] = None, filters: Optional[Dict[str, Any]] = None) -> int:
         """Count records in Supabase table."""
-        result = self.select(
-            table=table,
-            columns="id",
-            tenant_id=tenant_id,
-            filters=filters,
-            count=True
-        )
+        result = self.select(table=table, columns="id", tenant_id=tenant_id, filters=filters, count=True)
         return result.count or 0
 
     def get_raw_client(self) -> Client:

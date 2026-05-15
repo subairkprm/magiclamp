@@ -2,14 +2,14 @@
 MagicLamp Brain — Master Control Server
 Starts all modules, event bus, scheduler, and API server.
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     # Start scheduler
     if settings.AUTO_MODE:
         from scheduler import auto_scheduler
+
         auto_scheduler.start()
 
     log.info("MagicLamp Brain is LIVE")
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
     log.info("MagicLamp shutting down...")
     await bus.stop()
     await registry.shutdown_all()
+
 
 app = FastAPI(
     title="MagicLamp Brain API",
@@ -65,15 +67,14 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
 # ── EXCEPTION HANDLERS ────────────────────────────
 @app.exception_handler(MagicLampException)
 async def magiclamp_exception_handler(request: Request, exc: MagicLampException):
     """Handle custom MagicLamp exceptions with clean JSON responses."""
     log.warning(f"MagicLamp exception: {exc.error_code} - {exc.message}", extra={"details": exc.details})
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=exc.to_dict()
-    )
+    return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
@@ -81,12 +82,9 @@ async def general_exception_handler(request: Request, exc: Exception):
     log.error(f"Unhandled exception: {type(exc).__name__} - {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "INTERNAL_SERVER_ERROR",
-            "message": "An unexpected error occurred",
-            "status_code": 500
-        }
+        content={"error": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred", "status_code": 500},
     )
+
 
 # ── PROMETHEUS METRICS ────────────────────────────
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
@@ -130,9 +128,10 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(AuditMiddleware)
 
 # ── ROUTES ────────────────────────────────────
-app.include_router(auth.router,       prefix="/api/v1")
-app.include_router(admin.router,      prefix="/api/v1")
-app.include_router(brain_api.router,  prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(brain_api.router, prefix="/api/v1")
+
 
 # ── HEALTH ────────────────────────────────────
 @app.get("/health")
@@ -140,12 +139,13 @@ app.include_router(brain_api.router,  prefix="/api/v1")
 async def health(request: Request):
     return {"status": "ok", "version": settings.APP_VERSION, "app": settings.APP_NAME}
 
+
 @app.get("/")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
 async def root(request: Request):
     return {
-        "app":     settings.APP_NAME,
+        "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "docs":    "/docs",
-        "health":  "/health",
+        "docs": "/docs",
+        "health": "/health",
     }
