@@ -29,7 +29,7 @@ services:
 
   # ── 1. OLLAMA — Local LLM Engine ──────────────────────────
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.23.4@sha256:7ffd891da3e9e278d042c856c0fbe1b10fa03ed1791471377dde331eae4ea834
     container_name: ml_ollama
     <<: [*restart, *logging]
     expose:
@@ -117,9 +117,10 @@ services:
 
   # ── 4. N8N — Workflow Automation ───────────────────────────
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.20.9@sha256:fe36dc659e17c046255eb56ef65e7776eb7d13e4ca83a76bef137effa090972d
     container_name: ml_n8n
     <<: [*restart, *logging]
+    user: "1000:1000"
     expose:
       - "5678"
     environment:
@@ -148,9 +149,14 @@ services:
 
   # ── 5. UI — MagicLamp Frontend ─────────────────────────────
   ui:
-    image: nginx:alpine
+    image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: ml_ui
     <<: [*restart, *logging]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
     volumes:
       - ./ui:/usr/share/nginx/html:ro
       - ./nginx/ui.conf:/etc/nginx/conf.d/default.conf:ro
@@ -164,9 +170,14 @@ services:
 
   # ── 6. NGINX — Reverse Proxy ───────────────────────────────
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: ml_nginx
     <<: [*restart, *logging]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
     ports:
       - "80:80"
       - "443:443"
@@ -189,7 +200,7 @@ services:
 
   # ── 7. CERTBOT — Auto SSL ──────────────────────────────────
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/certbot:v5.6.0@sha256:0107d084c225631fc64a8313e19adb07275f7296fde338f7dfa93986c80b2e3e
     container_name: ml_certbot
     volumes:
       - ./data/certbot/www:/var/www/certbot:rw
