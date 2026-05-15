@@ -19,10 +19,14 @@ from core.registry import registry
 from core.bus import bus
 from core.audit import AuditMiddleware
 from core.exceptions import MagicLampException
-from core.limiter import limiter
-from api.v1 import auth, admin, brain as brain_api
 
 log = get_logger("main")
+
+# Initialize rate limiter — must be defined before API module imports
+# (api.v1.* modules do `from main import limiter`, so it must exist first)
+limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT_DEFAULT])
+
+from api.v1 import auth, admin, brain as brain_api
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,18 +90,39 @@ async def general_exception_handler(request: Request, exc: Exception):
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── MIDDLEWARE ────────────────────────────────
-# Configure CORS based on environment
-allowed_origins = ["*"]  # Default to allow all for development
-if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
-    # In production, use specific origins
+# Configure CORS with strict security in production
+if settings.CORS_ORIGINS.strip() == "*":
+    # Development/test mode: allow all origins
+    allowed_origins = ["*"]
+    allow_credentials = False
+    log.warning("CORS configured with wildcard '*' - development mode only")
+elif "*" in settings.CORS_ORIGINS:
+    # Mixed wildcard + origins is misconfiguration — refuse to start
+    raise RuntimeError(
+        "CORS_ALLOWED_ORIGINS mixes '*' with explicit origins. "
+        "Use either '*' alone (non-production only) or explicit URLs only."
+    )
+else:
+    # Production mode: explicit origins only (validated by Settings)
     allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+    allow_credentials = True
+    log.info(f"CORS configured with {len(allowed_origins)} explicit origin(s)")
+
+# Explicit headers only - no wildcards; include X-Brain-Key used by core.auth
+allowed_headers = [
+    "Authorization",
+    "Content-Type",
+    "X-Request-ID",
+    "X-Api-Key",
+    "X-Brain-Key",
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    allow_credentials=True,
+    allow_headers=allowed_headers,
+    allow_credentials=allow_credentials
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(AuditMiddleware)
