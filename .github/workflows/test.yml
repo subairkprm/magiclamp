@@ -190,7 +190,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build brain Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./brain
           file: ./brain/Dockerfile
