@@ -100,7 +100,9 @@ class Settings(BaseSettings):
                 )
 
             # Parse with urlparse: require scheme + netloc, reject path/query/fragment
-            parsed = urlparse(origin)
+            # Normalize trailing slash before parsing so https://app.example.com/ is treated as https://app.example.com
+            origin_normalized = origin.rstrip("/")
+            parsed = urlparse(origin_normalized)
             if parsed.scheme not in ("http", "https"):
                 raise ValueError(
                     f"CORS origin '{origin}' must start with http:// or https://. "

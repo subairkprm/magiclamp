@@ -268,7 +268,6 @@ class TestCORSMiddleware:
         for mw in app.user_middleware:
             if mw.cls in (CORSMiddleware, StarletteCorsMW):
                 return mw
-        # Also check middleware_stack
         return None
 
     def test_wildcard_cors_disables_credentials(self, monkeypatch):
