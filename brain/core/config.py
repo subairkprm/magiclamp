@@ -65,14 +65,14 @@ class Settings(BaseSettings):
             if v == "*":
                 raise ValueError(
                     "CORS_ORIGINS='*' is not allowed in production. "
-                    "Set explicit origins: CORS_ORIGINS=https://app.example.com,https://ops.example.com"
+                    "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com,https://ops.example.com"
                 )
 
             # Reject empty or whitespace-only
             if not v or not v.strip():
                 raise ValueError(
                     "CORS_ORIGINS cannot be empty in production. "
-                    "Set explicit origins: CORS_ORIGINS=https://app.example.com"
+                    "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com"
                 )
 
             # Check each origin for wildcards
