@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import urlparse
 
 class Settings(BaseSettings):
     # ── Identity ────────────────────────────
@@ -59,37 +60,72 @@ class Settings(BaseSettings):
         # Get environment from the validation context
         env = info.data.get("ENVIRONMENT", "production")
 
+        # Non-production: allow pure wildcard but reject '*' mixed with other origins
+        if env != "production":
+            if "*" in v and v.strip() != "*":
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS cannot mix '*' with explicit origins. "
+                    "Use either '*' alone or a list of explicit URLs."
+                )
+            return v
+
         # Production environment must have explicit origins
-        if env == "production":
-            # Reject wildcard
-            if v == "*":
+        # Reject wildcard
+        if v.strip() == "*":
+            raise ValueError(
+                "CORS_ORIGINS='*' is not allowed in production. "
+                "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com,https://ops.example.com"
+            )
+
+        # Reject empty or whitespace-only
+        if not v or not v.strip():
+            raise ValueError(
+                "CORS_ORIGINS cannot be empty in production. "
+                "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com"
+            )
+
+        # Check each origin for wildcards and structural validity
+        origins = [origin.strip() for origin in v.split(",")]
+        for origin in origins:
+            if not origin:
                 raise ValueError(
-                    "CORS_ORIGINS='*' is not allowed in production. "
-                    "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com,https://ops.example.com"
+                    "CORS_ALLOWED_ORIGINS contains an empty entry. "
+                    "Use comma-separated explicit URLs only."
                 )
 
-            # Reject empty or whitespace-only
-            if not v or not v.strip():
+            if "*" in origin:
                 raise ValueError(
-                    "CORS_ORIGINS cannot be empty in production. "
-                    "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com"
+                    f"CORS origin '{origin}' contains wildcard '*' which is not allowed in production. "
+                    f"Use explicit full URLs only."
                 )
 
-            # Check each origin for wildcards
-            origins = [origin.strip() for origin in v.split(",")]
-            for origin in origins:
-                if "*" in origin:
-                    raise ValueError(
-                        f"CORS origin '{origin}' contains wildcard '*' which is not allowed in production. "
-                        f"Use explicit full URLs only."
-                    )
-
-                # Validate it looks like a proper URL
-                if not origin.startswith(("http://", "https://")):
-                    raise ValueError(
-                        f"CORS origin '{origin}' must start with http:// or https://. "
-                        f"Example: https://app.example.com"
-                    )
+            # Parse with urlparse: require scheme + netloc, reject path/query/fragment
+            parsed = urlparse(origin)
+            if parsed.scheme not in ("http", "https"):
+                raise ValueError(
+                    f"CORS origin '{origin}' must start with http:// or https://. "
+                    f"Example: https://app.example.com"
+                )
+            if not parsed.netloc:
+                raise ValueError(
+                    f"CORS origin '{origin}' has no host. "
+                    f"Use the format https://hostname or https://hostname:port"
+                )
+            if parsed.path and parsed.path != "/":
+                raise ValueError(
+                    f"CORS origin '{origin}' must not contain a path. "
+                    f"Use scheme://host[:port] only (e.g. https://app.example.com)"
+                )
+            if parsed.query:
+                raise ValueError(
+                    f"CORS origin '{origin}' must not contain a query string. "
+                    f"Use scheme://host[:port] only"
+                )
+            if parsed.fragment:
+                raise ValueError(
+                    f"CORS origin '{origin}' must not contain a fragment. "
+                    f"Use scheme://host[:port] only"
+                )
 
         return v
 

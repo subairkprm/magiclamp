@@ -19,12 +19,14 @@ from core.registry import registry
 from core.bus import bus
 from core.audit import AuditMiddleware
 from core.exceptions import MagicLampException
-from api.v1 import auth, admin, brain as brain_api
 
 log = get_logger("main")
 
-# Initialize rate limiter
+# Initialize rate limiter — must be defined before API module imports
+# (api.v1.* modules do `from main import limiter`, so it must exist first)
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT_DEFAULT])
+
+from api.v1 import auth, admin, brain as brain_api
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -91,23 +93,30 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── MIDDLEWARE ────────────────────────────────
 # Configure CORS with strict security in production
-if settings.CORS_ORIGINS == "*":
+if settings.CORS_ORIGINS.strip() == "*":
     # Development/test mode: allow all origins
     allowed_origins = ["*"]
     allow_credentials = False
     log.warning("CORS configured with wildcard '*' - development mode only")
+elif "*" in settings.CORS_ORIGINS:
+    # Mixed wildcard + origins is misconfiguration — refuse to start
+    raise RuntimeError(
+        "CORS_ALLOWED_ORIGINS mixes '*' with explicit origins. "
+        "Use either '*' alone (non-production only) or explicit URLs only."
+    )
 else:
     # Production mode: explicit origins only (validated by Settings)
     allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
     allow_credentials = True
     log.info(f"CORS configured with {len(allowed_origins)} explicit origin(s)")
 
-# Explicit headers only - no wildcards
+# Explicit headers only - no wildcards; include X-Brain-Key used by core.auth
 allowed_headers = [
     "Authorization",
     "Content-Type",
     "X-Request-ID",
     "X-Api-Key",
+    "X-Brain-Key",
 ]
 
 app.add_middleware(

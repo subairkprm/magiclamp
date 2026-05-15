@@ -65,12 +65,13 @@ services:
       - "9000:9000"
     environment:
       <<: *common-env
-      JWT_SECRET:      ${JWT_SECRET}
-      BRAIN_SECRET:    ${BRAIN_SECRET}
-      BRAIN_DATA_DIR:  /data/brain
-      BRAIN_AUTO_MODE: ${BRAIN_AUTO_MODE:-true}
-      N8N_URL:         http://n8n:5678
-      N8N_API_KEY:     ${N8N_API_KEY:-}
+      JWT_SECRET:           ${JWT_SECRET}
+      BRAIN_SECRET:         ${BRAIN_SECRET}
+      BRAIN_DATA_DIR:       /data/brain
+      BRAIN_AUTO_MODE:      ${BRAIN_AUTO_MODE:-true}
+      N8N_URL:              http://n8n:5678
+      N8N_API_KEY:          ${N8N_API_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
     volumes:
       - ./data/brain:/data/brain
     depends_on:
