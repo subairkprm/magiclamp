@@ -12,3 +12,5 @@ node_modules/
 venv/
 *.log
 backups/
+.coverage
+htmlcov/

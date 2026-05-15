@@ -139,6 +139,17 @@ make status
 make logs
 ```
 
+### 3A. Local Brain-Only Deploy (No Docker)
+
+If Docker is not available and you only need the FastAPI brain service locally:
+
+```bash
+# One command setup + run on http://localhost:9000
+./scripts/deploy_local.sh
+```
+
+This script creates `.env` from `.env.example`, generates local secrets, creates a virtualenv, installs `brain/requirements.txt`, and starts Uvicorn.
+
 ### 4. Pull AI Model
 
 ```bash

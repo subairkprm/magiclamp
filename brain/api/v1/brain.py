@@ -29,6 +29,9 @@ from time import time
 log = get_logger("api.brain")
 router = APIRouter(prefix="/brain", tags=["brain"])
 
+# Import limiter from main
+from core.limiter import limiter
+
 # Cache for fact loading with TTL
 _fact_cache: Dict[str, tuple[List[Dict], float]] = {}
 _FACT_CACHE_TTL = 300  # 5 minutes

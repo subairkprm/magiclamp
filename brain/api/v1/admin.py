@@ -26,6 +26,9 @@ import httpx, secrets
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+# Import limiter from main
+from core.limiter import limiter
+
 # Dependency to get UserRepository
 def get_user_repository(db: DatabaseClient = Depends(get_database_client)) -> UserRepository:
     return UserRepository(db)

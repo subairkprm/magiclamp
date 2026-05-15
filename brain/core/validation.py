@@ -3,7 +3,7 @@ MagicLamp — Input Validation Models
 Comprehensive Pydantic models for API input validation and security.
 """
 
-from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, constr, field_validator
 from typing import Optional, List, Dict, Any, Literal, Annotated
 import re
 import socket
@@ -156,9 +156,8 @@ class CreateUserRequest(StrictBaseModel):
 
 # ── BRAIN API MODELS ─────────────────────────────────────────
 
-
-class RememberRequest(StrictBaseModel):
-    key: Annotated[str, Field(pattern=r"^[a-z0-9._-]+$", min_length=1, max_length=100)]
+class RememberRequest(BaseModel):
+    key: constr(pattern=r'^[a-z0-9._-]+$', min_length=1, max_length=100)
     value: Any
     source: Optional[str] = Field(default="api", max_length=50)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -249,10 +248,9 @@ class RecordChangeRequest(StrictBaseModel):
 
 # ── ADMIN API MODELS ─────────────────────────────────────────
 
-
-class CreateOrgRequest(StrictBaseModel):
-    name: Annotated[str, Field(min_length=2, max_length=100, strip_whitespace=True)]
-    slug: Annotated[str, Field(pattern=r"^[a-z0-9-]+$", min_length=2, max_length=50)]
+class CreateOrgRequest(BaseModel):
+    name: constr(min_length=2, max_length=100, strip_whitespace=True)
+    slug: constr(pattern=r'^[a-z0-9-]+$', min_length=2, max_length=50)
     plan: Literal["free", "starter", "pro", "enterprise"] = "free"
 
     @field_validator("slug")
@@ -283,10 +281,10 @@ class CreateAPIKeyRequest(StrictBaseModel):
         return v
 
 
-class CreateWebhookRequest(StrictBaseModel):
-    name: Annotated[str, Field(min_length=3, max_length=100)]
-    url: Annotated[str, Field(pattern=r"^https?://.+", max_length=500)]
-    events: List[str] = Field(default=[], max_length=50)
+class CreateWebhookRequest(BaseModel):
+    name: constr(min_length=3, max_length=100)
+    url: constr(pattern=r'^https?://.+', max_length=500)
+    events: List[str] = Field(default=[], max_items=50)
 
     @field_validator("url")
     @classmethod
