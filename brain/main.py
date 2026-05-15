@@ -90,18 +90,32 @@ async def general_exception_handler(request: Request, exc: Exception):
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── MIDDLEWARE ────────────────────────────────
-# Configure CORS based on environment
-allowed_origins = ["*"]  # Default to allow all for development
-if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
-    # In production, use specific origins
+# Configure CORS with strict security in production
+if settings.CORS_ORIGINS == "*":
+    # Development/test mode: allow all origins
+    allowed_origins = ["*"]
+    allow_credentials = False
+    log.warning("CORS configured with wildcard '*' - development mode only")
+else:
+    # Production mode: explicit origins only (validated by Settings)
     allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+    allow_credentials = True
+    log.info(f"CORS configured with {len(allowed_origins)} explicit origin(s)")
+
+# Explicit headers only - no wildcards
+allowed_headers = [
+    "Authorization",
+    "Content-Type",
+    "X-Request-ID",
+    "X-Api-Key",
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    allow_credentials=True
+    allow_headers=allowed_headers,
+    allow_credentials=allow_credentials
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(AuditMiddleware)

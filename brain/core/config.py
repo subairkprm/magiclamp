@@ -3,7 +3,7 @@ MagicLamp — Centralized Configuration
 All config validated at startup. No silent failures.
 """
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 from functools import lru_cache
 from typing import Optional
 
@@ -48,6 +48,50 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────
     CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def validate_cors_origins(cls, v: str, info) -> str:
+        """
+        Validate CORS origins based on environment.
+        In production, wildcard origins are not allowed.
+        """
+        # Get environment from the validation context
+        env = info.data.get("ENVIRONMENT", "production")
+
+        # Production environment must have explicit origins
+        if env == "production":
+            # Reject wildcard
+            if v == "*":
+                raise ValueError(
+                    "CORS_ORIGINS='*' is not allowed in production. "
+                    "Set explicit origins: CORS_ORIGINS=https://app.example.com,https://ops.example.com"
+                )
+
+            # Reject empty or whitespace-only
+            if not v or not v.strip():
+                raise ValueError(
+                    "CORS_ORIGINS cannot be empty in production. "
+                    "Set explicit origins: CORS_ORIGINS=https://app.example.com"
+                )
+
+            # Check each origin for wildcards
+            origins = [origin.strip() for origin in v.split(",")]
+            for origin in origins:
+                if "*" in origin:
+                    raise ValueError(
+                        f"CORS origin '{origin}' contains wildcard '*' which is not allowed in production. "
+                        f"Use explicit full URLs only."
+                    )
+
+                # Validate it looks like a proper URL
+                if not origin.startswith(("http://", "https://")):
+                    raise ValueError(
+                        f"CORS origin '{origin}' must start with http:// or https://. "
+                        f"Example: https://app.example.com"
+                    )
+
+        return v
 
     class Config:
         env_file = ".env"
