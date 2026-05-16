@@ -1,19 +1,31 @@
-## Summary
-- 
+## Claim
+-
 
-## Testing
-- [ ] Not run (explain why)
-- [ ] Unit tests
-- [ ] Integration tests
-- [ ] Manual QA
+## Evidence
+-
 
-## Risk & Impact
-- [ ] Low (internal-only change)
-- [ ] Medium (user-facing change)
-- [ ] High (migration/config/infra)
-Notes: 
+## Files changed
+-
 
-## Checklist
-- [ ] Linked issue
-- [ ] Added/updated tests (or N/A)
-- [ ] Updated docs (or N/A)
+## Validation performed
+-
+
+## Security impact
+-
+
+## UAE data residency impact
+-
+
+## Remaining risk
+-
+
+## Founder action needed
+-
+
+## Next recommended workstream
+-
+
+## Routing metadata
+- Risk band: RED / AMBER / GREEN
+- Hard-gate triggered: Yes / No
+- Gate reason(s):
