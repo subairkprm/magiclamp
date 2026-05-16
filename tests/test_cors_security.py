@@ -54,6 +54,34 @@ class TestCORSValidation:
 
         assert "CORS_ORIGINS='*' is not allowed in production" in str(exc_info.value)
 
+
+
+    def test_production_rejects_wildcard_via_cors_origins_env(self, monkeypatch):
+        """Production must reject CORS_ORIGINS='*' for backward-compatible env name too"""
+        monkeypatch.setenv("ENV", "production")
+        monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.setenv("CORS_ORIGINS", "*")
+        for k, v in _COMMON_ENV.items():
+            monkeypatch.setenv(k, v)
+
+        with pytest.raises(ValidationError) as exc_info:
+            from core.config import Settings
+            Settings()
+
+        assert "CORS_ORIGINS='*' is not allowed in production" in str(exc_info.value)
+
+    def test_production_accepts_explicit_origin_via_cors_origins_env(self, monkeypatch):
+        """Production accepts explicit origins via backward-compatible CORS_ORIGINS env"""
+        monkeypatch.setenv("ENV", "production")
+        monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
+        for k, v in _COMMON_ENV.items():
+            monkeypatch.setenv(k, v)
+
+        from core.config import Settings
+        s = Settings()
+        assert s.CORS_ORIGINS == "https://app.example.com"
+
     def test_production_rejects_wildcard_in_origin(self, monkeypatch):
         """Production must reject origins containing '*'"""
         monkeypatch.setenv("ENV", "production")
@@ -258,8 +286,9 @@ class TestCORSMiddleware:
         from unittest.mock import Mock, patch
         mock_sb = Mock()
 
+        import importlib
         with patch("supabase.create_client", return_value=mock_sb):
-            import main as brain_main
+            brain_main = importlib.import_module("brain.main")
         return brain_main.app
 
     def _get_cors_middleware(self, app):
