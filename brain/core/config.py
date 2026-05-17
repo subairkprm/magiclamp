@@ -4,7 +4,7 @@ All config validated at startup. No silent failures.
 """
 import os
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from functools import lru_cache
 from typing import Optional
 from urllib.parse import urlparse
@@ -41,7 +41,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_AI:       str = "20/minute"
     RATE_LIMIT_AUTH:     str = "5/minute"
 
-    CORS_ORIGINS:        str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+    # Canonical env var: CORS_ALLOWED_ORIGINS
+    # Backward compatibility: CORS_ORIGINS is also accepted
+    CORS_ORIGINS:        str = Field(default="*", validation_alias=AliasChoices("CORS_ALLOWED_ORIGINS", "CORS_ORIGINS"))
 
     @field_validator("CORS_ORIGINS")
     @classmethod
@@ -67,14 +69,14 @@ class Settings(BaseSettings):
         if v.strip() == "*":
             raise ValueError(
                 "CORS_ORIGINS='*' is not allowed in production. "
-                "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com,https://ops.example.com"
+                "Set explicit origins using CORS_ALLOWED_ORIGINS (canonical): https://app.example.com,https://ops.example.com"
             )
 
         # Reject empty or whitespace-only
         if not v or not v.strip():
             raise ValueError(
                 "CORS_ORIGINS cannot be empty in production. "
-                "Set explicit origins: CORS_ALLOWED_ORIGINS=https://app.example.com"
+                "Set explicit origins using CORS_ALLOWED_ORIGINS (canonical): https://app.example.com"
             )
 
         # Check each origin for wildcards and structural validity
