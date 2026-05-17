@@ -63,7 +63,8 @@ jobs:
           JWT_SECRET=test_jwt_secret_min_32_characters_long
           BRAIN_SECRET=test_brain_secret_min_32_characters
           OLLAMA_MODEL=test-model
-          ENVIRONMENT=test
+          ENV=test
+          CORS_ALLOWED_ORIGINS=*
           BRAIN_AUTO_MODE=false
           EOF
 
