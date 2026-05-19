@@ -9,6 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -40,10 +42,12 @@ async def lifespan(app: FastAPI):
     await registry.initialize_all()
 
     # Start scheduler
-    if settings.AUTO_MODE:
+    if settings.AUTO_MODE and settings.AUTO_MODE_APPROVED:
         from scheduler import auto_scheduler
 
         auto_scheduler.start()
+    elif settings.AUTO_MODE and not settings.AUTO_MODE_APPROVED:
+        log.warning("AUTO_MODE is enabled but AUTO_MODE_APPROVED is False — scheduler will not start until human approval is set.")
 
     log.info("MagicLamp Brain is LIVE")
     yield
@@ -59,8 +63,8 @@ app = FastAPI(
     description="Enterprise AI Brain — Memory, Reasoning, Training, Control",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
 )
 
 # Register rate limiter

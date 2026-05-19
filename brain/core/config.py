@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     DATA_DIR:        str = Field(default="./data/brain", alias="BRAIN_DATA_DIR")
     AUTO_MODE:       bool = Field(default=False, alias="BRAIN_AUTO_MODE")
+    AUTO_MODE_APPROVED: bool = Field(default=False, alias="AUTO_MODE_APPROVED")
+    ENABLE_API_DOCS: bool = Field(default=False, alias="ENABLE_API_DOCS")
 
     RATE_LIMIT_DEFAULT:  str = "100/minute"
     RATE_LIMIT_AI:       str = "20/minute"
