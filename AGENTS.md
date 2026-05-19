@@ -47,3 +47,12 @@ See:
 - `.agents/routing.md` for triage and gate routing.
 - `.agents/handoff-template.md` for required PR handoff format.
 - `.github/MERGE_VALIDATION_POLICY.md` for merge checks.
+
+## Control plane definition
+MagicLamp operates as a **control plane** for SpreadVerse.
+- App Plane: SpreadVerse business logic and runtime behavior.
+- Control Plane: MagicLamp translates, plans, routes, validates, and reports.
+- MagicLamp must not deploy, merge PRs, run DB migrations, or edit secrets.
+- Risky actions require explicit human approval.
+- Control-plane operations are Super Admin-only.
+
